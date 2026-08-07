@@ -21,7 +21,13 @@ export interface SiteConfig {
   authorsPath?: string;
   /** Path to a tags.json file, if the site uses one. */
   tagsPath?: string;
-  /** Path within the repo where uploaded media should be committed. */
+  /** Path within the repo where uploaded images are committed (also holds
+   *  pre-existing site assets like author avatars — no migration needed). */
+  imagesPath: string;
+  /** Path within the repo where uploaded PDFs/documents are committed. */
+  documentsPath: string;
+  /** Path within the repo where other uploaded media (video, audio, etc.)
+   *  is committed. */
   mediaPath: string;
   /** Live site base URL, used to build preview/"view live" links. */
   siteUrl: string;
@@ -35,7 +41,9 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
     blogPath: "content/blog",
     authorsPath: "content/authors",
     tagsPath: "content/tags.json",
-    mediaPath: "public/images",
+    imagesPath: "public/images",
+    documentsPath: "public/documents",
+    mediaPath: "public/media",
     siteUrl: "https://velocity-b.com",
   },
   iantruscott: {
@@ -46,7 +54,9 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
     blogPath: "content/blog",
     authorsPath: "content/authors",
     tagsPath: "content/tags.json",
-    mediaPath: "public/images",
+    imagesPath: "public/images",
+    documentsPath: "public/documents",
+    mediaPath: "public/media",
     siteUrl: "https://iantruscott.com",
   },
   rockstarcmo: {
@@ -57,7 +67,9 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
     blogPath: "content/blog",
     authorsPath: "content/authors",
     tagsPath: "content/tags.json",
-    mediaPath: "public/images",
+    imagesPath: "public/images",
+    documentsPath: "public/documents",
+    mediaPath: "public/media",
     // Note: podcast episodes are NOT admin-managed content for this site —
     // they're pulled live via RSS/ISR on the site side. Only blog posts and
     // pages go through this admin. See CLAUDE.md.

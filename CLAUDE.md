@@ -121,6 +121,38 @@ files that each assume something different about shared state, like a
 schema). Practical mitigation: avoid running two chats against the same
 repo at the same time.
 
+## Media paths
+
+Three separate top-level paths, not one flat folder — `public/images/`,
+`public/documents/`, `public/media/` (video/audio/other). Deliberately not
+nested under a shared `media/` root. Decided 2026-08-07. Rationale:
+
+- `listDir()` fetches an entire directory per call — separate folders mean
+  the admin only pulls back what it actually needs (e.g. "show images"
+  doesn't also fetch every PDF).
+- Featured images are tightly coupled to post frontmatter (picked via an
+  editor image picker); PDFs are standalone downloadable Resources assets
+  linked from elsewhere — different UX, no reason to force them through one
+  browse view.
+- Cleaner URLs for shared/downloaded assets, e.g. `/documents/guide.pdf`
+  rather than a PDF sitting among hashed image filenames.
+- Deliberately **no migration** of Velocity B's existing `public/images/`
+  content (author avatars etc.) — those stay exactly where they are, since
+  they're referenced directly by `content/authors/*.md` and moving them
+  would risk breaking live references for no real benefit. `imagesPath`
+  simply continues pointing at the same existing folder; `documentsPath`
+  and `mediaPath` are net-new, empty until first used.
+
+`saveMedia(site, kind, filename, buffer)` — `kind` is `"image" | "document"
+| "media"` and picks the right path automatically.
+
+No cross-site shared asset store — each site owns its own media in its own
+repo, same as it owns its own content. `mediasurface` is the shared editing
+interface, never a storage location itself. If a genuine shared-asset need
+appears later (e.g. common branding across all sites), revisit then —
+likely Vercel Blob, per the deferred DB/storage migration item — rather
+than architecting for it now.
+
 ## Storage interface
 
 Implemented in `src/lib/storage/posts.ts`, on top of `src/lib/github/client.ts`

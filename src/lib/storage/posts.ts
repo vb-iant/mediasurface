@@ -125,26 +125,36 @@ export async function postExists(site: SiteId, slug: string): Promise<boolean> {
   }
 }
 
+export type MediaKind = "image" | "document" | "media";
+
 /**
- * Uploads a media file (image, etc.) to the site's media path and returns
- * the public path to reference it from a post's featuredImage or inline
- * content — matching the convention already used for author avatars
- * (e.g. "/images/authors/mark-rattley.png").
+ * Uploads a media file (image, PDF, video, etc.) to the appropriate path
+ * for its kind — public/images, public/documents, or public/media — and
+ * returns the public path to reference it from a post's featuredImage,
+ * inline content, or a resource link. Matches the convention already used
+ * for author avatars (e.g. "/images/authors/mark-rattley.png").
  */
 export async function saveMedia(
   site: SiteId,
+  kind: MediaKind,
   filename: string,
   fileContent: Buffer
 ): Promise<{ path: string; publicPath: string }> {
   const config = getSiteConfig(site);
-  const repoPath = `${config.mediaPath}/${filename}`;
+  const basePath =
+    kind === "image"
+      ? config.imagesPath
+      : kind === "document"
+        ? config.documentsPath
+        : config.mediaPath;
+  const repoPath = `${basePath}/${filename}`;
 
   await putFile(
     config.repo,
     config.branch,
     repoPath,
     fileContent,
-    `Upload media: ${filename}`,
+    `Upload ${kind}: ${filename}`,
     { isBinary: true }
   );
 
