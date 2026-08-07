@@ -90,6 +90,21 @@ work. The script already handles this automatically (falls back to creating
 the ref fresh when no branch exists yet), but if bootstrapping a *brand new*
 repo manually, create one file via the Contents API first.
 
+**Known gotcha (found + fixed 2026-08-07): deletions weren't handled.**
+Removing a local file and running the script did NOT remove it from the
+repo — a new tree built with `base_tree` merges with everything already
+there by default; anything not explicitly re-specified just carries
+forward unchanged. GitHub only deletes a path when given an explicit tree
+entry with `sha: null`. The script now fetches the remote tree, diffs it
+against the local file set (scoped to the same `--include-ext`/
+`--exclude-dir` filters as the push itself, so a partial push like
+`--include-ext .md` doesn't wrongly delete unrelated file types), and adds
+null-SHA entries for anything that's disappeared locally. **This means any
+commit made with the version of this script before this fix could have
+left orphaned files on GitHub that looked deleted locally but weren't** —
+worth a quick manual check on any repo where files were removed locally
+and pushed before 2026-08-07's fix landed.
+
 **Always re-fetch the branch's current SHA immediately before every write** —
 a stale SHA causes a 409 conflict, and this matters more with multiple repos
 and sessions in play.
