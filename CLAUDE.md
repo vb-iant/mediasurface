@@ -170,12 +170,11 @@ than architecting for it now.
 
 ## Velocity B blog front-end migration
 
-Named explicitly 2026-08-07: `mediasurface` is building both halves —
-the admin backend (storage interface, GitHub writes) AND, via the public
-test blog, a proven front-end reference implementation. Velocity B's
-actual live front-end (`lib/blog.ts` and templates) is the thing that
-needs to catch up to what gets proven in `mediasurface/blog`, not the
-other way around. This is a real migration, with a defined scope, not a
+Named explicitly 2026-08-07, revised same day (see "Validation process"
+above — the reference implementation moved from `mediasurface/blog` to
+`velocity-b` feature branches). `velocity-b`'s live front-end (`lib/blog.ts`
+and templates) doesn't yet correctly implement behavior its own schema
+already implies. This is a real migration, with a defined scope, not a
 loose set of unrelated fixes:
 
 1. Draft/published enforcement (`tm-1786120843031`)
@@ -183,11 +182,11 @@ loose set of unrelated fixes:
 3. OG-image source toggle (`tm-1786120252051`)
 4. Reading-time calculation reconciled to one implementation (`tm-1786120861705`)
 
-Each gets built and proven in `mediasurface/blog` first, then ported into
-`vb-iant/velocity-b`'s actual code. Migration is "done" when all four have
-landed in the live repo and the live site's behavior matches the proven
-reference implementation — tracked as a single checklist, not four
-independent, disconnected tasks.
+Each gets built and proven on a `velocity-b` feature branch (real code,
+real content, Vercel branch-preview deploy) before merging to `main`.
+Migration is "done" when all four have landed on `main` and production
+behavior matches what was proven on the branch — tracked as a single
+checklist, not four independent, disconnected tasks.
 
 This migration only covers *behavior that the current schema already
 implies* (status, author, ogImageSource, reading time) — it's a
@@ -236,22 +235,23 @@ checkpoint — this is a narrower, more urgent fix: make Velocity B honest
 about the schema it already claims to support, before building more on top
 of an admin that can silently produce content the site mishandles.
 
-**Validation process (decided 2026-08-07, expanded same day):** no
-separate test/staging repo for these fixes. Instead, build a real public
-test blog at `mediasurface.app/blog` — index + individual post pages,
-rendering real Velocity B content via the already-proven storage interface.
-Public (not behind the admin's password gate) but unlinked from
-`mediasurface`'s own nav — unadvertised rather than secured. Public access
-matters specifically because OG social-card crawlers (Slack, LinkedIn,
-etc.) need to reach it to genuinely validate the OG-toggle feature; an
-auth-gated preview couldn't prove that works. The auth middleware needs an
-explicit `/blog/*` carve-out from the start, not retrofitted later.
+**Validation process (decided 2026-08-07, revised same day):** initially
+built as a public test blog inside `mediasurface` itself
+(`mediasurface.app/blog`), but reconsidered — that approach meant a
+parallel, simplified reimplementation making live cross-repo GitHub API
+calls at request time, which doesn't actually behave like the real site
+(`velocity-b`'s own code reads local files at build time). Removed.
 
-Draft-filtering, multi-author rendering, and the OG-toggle logic all get
-built and proven here first, then ported verbatim into `velocity-b`'s
-actual repo — not written directly into production and hoped correct.
-
-No new repo, no new Vercel project, no manual GitHub/Vercel setup for this.
+**Revised approach: Vercel branch previews on `velocity-b`'s own repo.**
+Vercel automatically deploys a preview URL for any branch pushed to a
+connected repo — push a feature branch with the draft-filtering/
+multi-author/OG-toggle fixes directly to `vb-iant/velocity-b`, and get a
+real, isolated preview of the actual site code and actual local-file
+content, with zero duplicate implementation and zero runtime GitHub API
+dependency. Production (`main`) stays completely unaffected. This is a
+"clean test environment that works exactly the same as what we intend to
+deploy" — the explicit goal — in a way the `mediasurface/blog` approach
+could not be, since it was never the real code.
 
 ## Storage interface
 
@@ -293,20 +293,19 @@ splitting into fine-grained per-repo PATs later needs no code changes.
       `vb-iant/velocity-b` (37 posts, real content).
 - [ ] Vercel project for `mediasurface` connected (in progress — custom
       domain `mediasurface.app` acquired).
-- [ ] Auth (password gate) built — with `/blog/*` carve-out from the start.
-- [ ] **Public test blog at `mediasurface.app/blog` built (index + post
-      pages, unlinked, real Velocity B content).** Sequenced BEFORE the
-      post editor, decided 2026-08-07 — the editor needs a real, correct
-      destination to verify saves against, not just raw GitHub file diffs.
-      Draft-filtering, multi-author rendering, and OG-toggle logic all get
-      built and proven here first.
+- [ ] Auth (password gate) built.
+- [ ] Velocity B feature branch created for the front-end migration —
+      draft-filtering, multi-author rendering, and OG-toggle logic built
+      and proven there via Vercel branch preview (real code, real content,
+      no duplicate implementation), before merging to `main`.
 - [ ] `savePost` tested against a live repo — deliberately deferred until
       the editor UI exists, to avoid test commits on a live site.
 - [ ] Admin UI: post list + editor, wired to the storage interface.
 - [ ] Velocity B site-switcher entry wired end-to-end (create/edit a post →
       commit → live on velocity-b.com).
-- [ ] Port proven draft-filtering/multi-author/OG-toggle logic from the
-      test blog into `velocity-b`'s actual repo.
+- [ ] Merge the proven feature branch's draft-filtering/multi-author/
+      OG-toggle logic to `velocity-b`'s `main`.
 - [ ] Onboard iantruscott.com and Rockstar CMO once Velocity B path is
       proven — not before.
+
 
