@@ -153,35 +153,44 @@ appears later (e.g. common branding across all sites), revisit then —
 likely Vercel Blob, per the deferred DB/storage migration item — rather
 than architecting for it now.
 
-## Front-end normalization (direction, not yet built)
+## Front-end normalization
 
-Decided in principle 2026-08-07: content schema being shared across sites
-doesn't mean *behavior* is — a schema field like `ogImageSource` only does
-something on a site whose front-end code actually reads it. Velocity B has
-that logic (`lib/og.tsx`); Rockstar CMO's actual rendering code hasn't been
-looked at yet; iantruscott.com isn't even on Next.js yet (still Ghost).
-Same gap will recur for any behavioral field, not just this one.
+**Scope shifted 2026-08-07.** Originally framed as future work, deferred to
+the Phase 1→2 checkpoint once a second site's front-end existed to compare
+against. That framing was wrong: it's already Phase 1 work.
 
-**Direction chosen: option 3 — shared front-end/component code across
-sites, not just shared content schema**, eventually. But: **Velocity B is
-the reference model, extract/share incrementally as real need appears**,
-not a big-bang shared-component-library build now. Concretely:
+Reason for the shift: content schema being shared doesn't mean *behavior*
+is — a schema field like `status` or `author` (array) only means something
+on a site whose front-end code actually implements it. Auditing Velocity
+B's own `lib/blog.ts` and blog templates (2026-08-07) found the site
+doesn't yet correctly implement the schema `mediasurface`'s admin is about
+to write to:
 
-- Don't pre-build a shared package before there's a second real consumer.
-- When a second site needs a piece Velocity B already has (OG generation,
-  reading-time display, related-posts logic, etc.), that's the trigger to
-  extract it into something shared — not before.
-- iantruscott.com and Rockstar CMO aren't even on comparable Next.js
-  codebases yet (Rockstar CMO's actual front-end hasn't been audited; it
-  may already diverge structurally from Velocity B even though it's also
-  Next.js — see the content-schema gap already found). Onboarding either
-  site is likely also where the first real extraction opportunity appears.
-- Keep deployment independence (CLAUDE.md decision #1) regardless — shared
-  code lives in an importable package/module, not a merged deploy.
+- **No draft/published enforcement at all.** `getAllBlogPosts()` and
+  `generateStaticParams()` read and publish every `.md` file in
+  `content/blog` unconditionally — `status` isn't even a field on
+  `BlogPostFrontmatter`. A draft saved via the admin would go live
+  immediately, silently. Real risk, not theoretical — the post editor's
+  first live `savePost` test happens against this repo.
+- **Author is hard-coded single-string throughout rendering**
+  (`getAuthorBySlug`, `getPostsByAuthor`, `PostCard`, post-detail page) —
+  the schema's `string | string[]` "multi-author-capable" forward
+  compatibility exists only in the admin's schema, not in the site that
+  would need to render it.
+- **Reading time computed independently in two places** with two different
+  implementations (Velocity B's own word-count/200wpm vs. `mediasurface`'s
+  use of the `reading-time` package) — no guarantee they always agree on
+  the same post.
 
-Revisit this as a live decision at the Phase 1→2 checkpoint, once there's
-an actual second site's front-end to compare against Velocity B's, rather
-than deciding shared-package shape speculatively now.
+**Revised direction:** fixing Velocity B's own front-end to correctly and
+completely implement the schema is now part of *this* project's Phase 1
+scope — a prerequisite for trusting the admin, not a nice-to-have deferred
+to onboarding a second site. The longer-term "share code across sites"
+direction (still option 3, still Velocity B as reference model once a real
+second consumer exists) is unchanged and still belongs at the Phase 1→2
+checkpoint — this is a narrower, more urgent fix: make Velocity B honest
+about the schema it already claims to support, before building more on top
+of an admin that can silently produce content the site mishandles.
 
 ## Storage interface
 
