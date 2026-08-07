@@ -71,6 +71,33 @@ def collect_files(local_dir, include_ext, exclude_dirs):
     return files
 
 
+def path_in_scope(rel_path, include_ext, exclude_dirs):
+    """Whether a repo path WOULD have been picked up by collect_files's
+    filters, had it existed locally. Used to scope deletion detection so a
+    partial push (e.g. --include-ext .md) only considers deletions among
+    .md files, not the entire repo."""
+    parts = rel_path.split("/")
+    if any(part in exclude_dirs for part in parts[:-1]):
+        return False
+    fname = parts[-1]
+    if include_ext and not any(fname.endswith(ext) for ext in include_ext):
+        return False
+    return True
+
+
+def get_remote_paths_in_scope(token, repo, base_tree_sha, include_ext, exclude_dirs):
+    """Fetches the full recursive tree at base_tree_sha and returns the set
+    of blob paths that fall within the current push's filter scope."""
+    tree = gh_request("GET", f"/repos/{repo}/git/trees/{base_tree_sha}?recursive=1", token)
+    paths = set()
+    for entry in tree.get("tree", []):
+        if entry["type"] != "blob":
+            continue
+        if path_in_scope(entry["path"], include_ext, exclude_dirs):
+            paths.add(entry["path"])
+    return paths
+
+
 def create_blob(token, owner_repo, full_path):
     with open(full_path, "rb") as f:
         raw = f.read()
@@ -143,6 +170,28 @@ def main():
             "type": "blob",
             "sha": blob_sha,
         })
+
+    # Detect deletions: files that were in scope on the remote tree but are
+    # no longer present locally. Without this, removing a local file and
+    # pushing does NOT remove it from the repo — trees merge with base_tree
+    # by default, so anything not explicitly re-specified just carries
+    # forward unchanged. GitHub's create-tree API deletes a path only when
+    # given an explicit entry with sha: null.
+    if base_tree_sha:
+        local_path_set = {rel_path for _, rel_path in files}
+        remote_paths_in_scope = get_remote_paths_in_scope(
+            token, args.repo, base_tree_sha, include_ext, exclude_dirs
+        )
+        deleted_paths = remote_paths_in_scope - local_path_set
+        for path in deleted_paths:
+            tree_entries.append({
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": None,
+            })
+        if deleted_paths:
+            print(f"Detected {len(deleted_paths)} deletion(s): {', '.join(sorted(deleted_paths))}")
 
     tree_body = {"tree": tree_entries}
     if base_tree_sha:
