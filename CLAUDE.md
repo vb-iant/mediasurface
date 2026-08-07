@@ -153,6 +153,35 @@ appears later (e.g. common branding across all sites), revisit then —
 likely Vercel Blob, per the deferred DB/storage migration item — rather
 than architecting for it now.
 
+## Velocity B blog front-end migration
+
+Named explicitly 2026-08-07: `mediasurface` is building both halves —
+the admin backend (storage interface, GitHub writes) AND, via the public
+test blog, a proven front-end reference implementation. Velocity B's
+actual live front-end (`lib/blog.ts` and templates) is the thing that
+needs to catch up to what gets proven in `mediasurface/blog`, not the
+other way around. This is a real migration, with a defined scope, not a
+loose set of unrelated fixes:
+
+1. Draft/published enforcement (`tm-1786120843031`)
+2. Multi-author rendering, if confirmed wanted (`tm-1786120853654`)
+3. OG-image source toggle (`tm-1786120252051`)
+4. Reading-time calculation reconciled to one implementation (`tm-1786120861705`)
+
+Each gets built and proven in `mediasurface/blog` first, then ported into
+`vb-iant/velocity-b`'s actual code. Migration is "done" when all four have
+landed in the live repo and the live site's behavior matches the proven
+reference implementation — tracked as a single checklist, not four
+independent, disconnected tasks.
+
+This migration only covers *behavior that the current schema already
+implies* (status, author, ogImageSource, reading time) — it's a
+narrower, more urgent thing than the longer-term "share front-end code
+across all three sites" direction described below, which stays a Phase
+1→2 question. This migration is Phase 1, and blocks nothing about that
+later direction — it's simply making Velocity B honest about what its own
+schema already claims to support, before Phase 2 adds more sites on top.
+
 ## Front-end normalization
 
 **Scope shifted 2026-08-07.** Originally framed as future work, deferred to
