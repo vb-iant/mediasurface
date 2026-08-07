@@ -170,23 +170,23 @@ than architecting for it now.
 
 ## Velocity B blog front-end migration
 
-Named explicitly 2026-08-07, revised same day (see "Validation process"
-above — the reference implementation moved from `mediasurface/blog` to
-`velocity-b` feature branches). `velocity-b`'s live front-end (`lib/blog.ts`
-and templates) doesn't yet correctly implement behavior its own schema
-already implies. This is a real migration, with a defined scope, not a
-loose set of unrelated fixes:
+Named 2026-08-07, direction settled same day (see "Validation process"
+above). `mediasurface` builds the reference blog implementation;
+`velocity-b`'s live front-end (`lib/blog.ts` and templates) is not touched
+during development — it gets migrated onto `mediasurface`'s implementation
+once that's proven, as a deliberate cutover, not a series of incremental
+patches to the existing code. Scope for the initial `mediasurface`
+implementation, informed by what's missing from `velocity-b`'s current
+code (found by reading it as reference, not by editing it):
 
-1. Draft/published enforcement (`tm-1786120843031`)
-2. Multi-author rendering, if confirmed wanted (`tm-1786120853654`)
-3. OG-image source toggle (`tm-1786120252051`)
-4. Reading-time calculation reconciled to one implementation (`tm-1786120861705`)
+1. Draft/published enforcement — `velocity-b` currently has none at all
+2. Multi-author rendering — decide if wanted; `velocity-b` only handles a single author string today
+3. OG-image source toggle (generated card vs. featured image)
+4. Reading-time calculation — one implementation, not duplicated later
 
-Each gets built and proven on a `velocity-b` feature branch (real code,
-real content, Vercel branch-preview deploy) before merging to `main`.
-Migration is "done" when all four have landed on `main` and production
-behavior matches what was proven on the branch — tracked as a single
-checklist, not four independent, disconnected tasks.
+Migration is "done" when `velocity-b` is running on `mediasurface`'s blog
+implementation and its live behavior matches what was proven there —
+tracked as a single checklist, not disconnected fixes to the old code.
 
 This migration only covers *behavior that the current schema already
 implies* (status, author, ogImageSource, reading time) — it's a
@@ -235,23 +235,17 @@ checkpoint — this is a narrower, more urgent fix: make Velocity B honest
 about the schema it already claims to support, before building more on top
 of an admin that can silently produce content the site mishandles.
 
-**Validation process (decided 2026-08-07, revised same day):** initially
-built as a public test blog inside `mediasurface` itself
-(`mediasurface.app/blog`), but reconsidered — that approach meant a
-parallel, simplified reimplementation making live cross-repo GitHub API
-calls at request time, which doesn't actually behave like the real site
-(`velocity-b`'s own code reads local files at build time). Removed.
-
-**Revised approach: Vercel branch previews on `velocity-b`'s own repo.**
-Vercel automatically deploys a preview URL for any branch pushed to a
-connected repo — push a feature branch with the draft-filtering/
-multi-author/OG-toggle fixes directly to `vb-iant/velocity-b`, and get a
-real, isolated preview of the actual site code and actual local-file
-content, with zero duplicate implementation and zero runtime GitHub API
-dependency. Production (`main`) stays completely unaffected. This is a
-"clean test environment that works exactly the same as what we intend to
-deploy" — the explicit goal — in a way the `mediasurface/blog` approach
-could not be, since it was never the real code.
+**Direction settled 2026-08-07 (final):** `mediasurface` builds and owns
+the reference blog front-end implementation. `velocity-b`'s existing code
+is a reference only — not edited, not tested against, not touched. Once
+the blog implementation in `mediasurface` is right, `velocity-b` migrates
+onto it (its own `lib/blog.ts`/templates get replaced, not incrementally
+patched). All future blog enhancements get built and tested in
+`mediasurface` first, then rolled out to sites — `mediasurface` is
+upstream, sites are downstream. (Two earlier approaches were tried and
+abandoned same day — a public `mediasurface.app/blog` route, then a
+`velocity-b` feature-branch/Vercel-preview approach — see git history for
+that back-and-forth if useful context, but this is the settled direction.)
 
 ## Storage interface
 
@@ -294,18 +288,19 @@ splitting into fine-grained per-repo PATs later needs no code changes.
 - [ ] Vercel project for `mediasurface` connected (in progress — custom
       domain `mediasurface.app` acquired).
 - [ ] Auth (password gate) built.
-- [ ] Velocity B feature branch created for the front-end migration —
-      draft-filtering, multi-author rendering, and OG-toggle logic built
-      and proven there via Vercel branch preview (real code, real content,
-      no duplicate implementation), before merging to `main`.
+- [ ] Blog front-end built in `mediasurface` (index + post pages) — the
+      reference implementation for how blogs should work across all
+      sites. Not `velocity-b` — that stays untouched, reference only.
 - [ ] `savePost` tested against a live repo — deliberately deferred until
       the editor UI exists, to avoid test commits on a live site.
 - [ ] Admin UI: post list + editor, wired to the storage interface.
 - [ ] Velocity B site-switcher entry wired end-to-end (create/edit a post →
       commit → live on velocity-b.com).
-- [ ] Merge the proven feature branch's draft-filtering/multi-author/
-      OG-toggle logic to `velocity-b`'s `main`.
+- [ ] Migrate `velocity-b` onto `mediasurface`'s proven blog implementation
+      (deliberate cutover, once ready — not incremental patches to the
+      existing `lib/blog.ts`).
 - [ ] Onboard iantruscott.com and Rockstar CMO once Velocity B path is
       proven — not before.
+
 
 
