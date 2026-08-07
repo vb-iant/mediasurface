@@ -192,14 +192,22 @@ checkpoint — this is a narrower, more urgent fix: make Velocity B honest
 about the schema it already claims to support, before building more on top
 of an admin that can silently produce content the site mishandles.
 
-**Validation process (decided 2026-08-07):** no separate test/staging repo
-for these fixes. Instead, build and prove the corrected rendering logic
-inside a post preview feature in `mediasurface` itself — genuinely useful
-regardless (seeing a post before it's live is standard), and it doubles as
-the proving ground: pulls real content via the already-proven storage
-interface, lets the draft-filter/multi-author/OG-toggle logic be validated
-against real data before it's ported into `velocity-b`'s actual repo. No
-new repo, no new Vercel project, no manual GitHub/Vercel setup for this.
+**Validation process (decided 2026-08-07, expanded same day):** no
+separate test/staging repo for these fixes. Instead, build a real public
+test blog at `mediasurface.app/blog` — index + individual post pages,
+rendering real Velocity B content via the already-proven storage interface.
+Public (not behind the admin's password gate) but unlinked from
+`mediasurface`'s own nav — unadvertised rather than secured. Public access
+matters specifically because OG social-card crawlers (Slack, LinkedIn,
+etc.) need to reach it to genuinely validate the OG-toggle feature; an
+auth-gated preview couldn't prove that works. The auth middleware needs an
+explicit `/blog/*` carve-out from the start, not retrofitted later.
+
+Draft-filtering, multi-author rendering, and the OG-toggle logic all get
+built and proven here first, then ported verbatim into `velocity-b`'s
+actual repo — not written directly into production and hoped correct.
+
+No new repo, no new Vercel project, no manual GitHub/Vercel setup for this.
 
 ## Storage interface
 
