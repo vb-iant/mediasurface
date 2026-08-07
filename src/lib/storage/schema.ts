@@ -18,6 +18,12 @@ export interface PostFrontmatter {
   tags: string[];
   excerpt: string;
   featuredImage?: string;
+  /** Which image renders as this post's social-share (OG) card. Defaults to
+   *  "generated" if unset — the code-generated typographic card Velocity B
+   *  already produces for every post via lib/og.tsx. "featured" uses
+   *  featuredImage directly instead, when one is set. Irrelevant/ignored if
+   *  featuredImage is empty, regardless of this value. */
+  ogImageSource?: "generated" | "featured";
   status?: "draft" | "published";
   seoTitle?: string;
   seoDescription?: string;
