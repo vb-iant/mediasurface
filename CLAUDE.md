@@ -153,6 +153,36 @@ appears later (e.g. common branding across all sites), revisit then —
 likely Vercel Blob, per the deferred DB/storage migration item — rather
 than architecting for it now.
 
+## Front-end normalization (direction, not yet built)
+
+Decided in principle 2026-08-07: content schema being shared across sites
+doesn't mean *behavior* is — a schema field like `ogImageSource` only does
+something on a site whose front-end code actually reads it. Velocity B has
+that logic (`lib/og.tsx`); Rockstar CMO's actual rendering code hasn't been
+looked at yet; iantruscott.com isn't even on Next.js yet (still Ghost).
+Same gap will recur for any behavioral field, not just this one.
+
+**Direction chosen: option 3 — shared front-end/component code across
+sites, not just shared content schema**, eventually. But: **Velocity B is
+the reference model, extract/share incrementally as real need appears**,
+not a big-bang shared-component-library build now. Concretely:
+
+- Don't pre-build a shared package before there's a second real consumer.
+- When a second site needs a piece Velocity B already has (OG generation,
+  reading-time display, related-posts logic, etc.), that's the trigger to
+  extract it into something shared — not before.
+- iantruscott.com and Rockstar CMO aren't even on comparable Next.js
+  codebases yet (Rockstar CMO's actual front-end hasn't been audited; it
+  may already diverge structurally from Velocity B even though it's also
+  Next.js — see the content-schema gap already found). Onboarding either
+  site is likely also where the first real extraction opportunity appears.
+- Keep deployment independence (CLAUDE.md decision #1) regardless — shared
+  code lives in an importable package/module, not a merged deploy.
+
+Revisit this as a live decision at the Phase 1→2 checkpoint, once there's
+an actual second site's front-end to compare against Velocity B's, rather
+than deciding shared-package shape speculatively now.
+
 ## Storage interface
 
 Implemented in `src/lib/storage/posts.ts`, on top of `src/lib/github/client.ts`
