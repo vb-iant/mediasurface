@@ -249,11 +249,20 @@ splitting into fine-grained per-repo PATs later needs no code changes.
       `vb-iant/velocity-b` (37 posts, real content).
 - [ ] Vercel project for `mediasurface` connected (in progress — custom
       domain `mediasurface.app` acquired).
+- [ ] Auth (password gate) built — with `/blog/*` carve-out from the start.
+- [ ] **Public test blog at `mediasurface.app/blog` built (index + post
+      pages, unlinked, real Velocity B content).** Sequenced BEFORE the
+      post editor, decided 2026-08-07 — the editor needs a real, correct
+      destination to verify saves against, not just raw GitHub file diffs.
+      Draft-filtering, multi-author rendering, and OG-toggle logic all get
+      built and proven here first.
 - [ ] `savePost` tested against a live repo — deliberately deferred until
       the editor UI exists, to avoid test commits on a live site.
-- [ ] Auth (password gate) built.
 - [ ] Admin UI: post list + editor, wired to the storage interface.
 - [ ] Velocity B site-switcher entry wired end-to-end (create/edit a post →
       commit → live on velocity-b.com).
+- [ ] Port proven draft-filtering/multi-author/OG-toggle logic from the
+      test blog into `velocity-b`'s actual repo.
 - [ ] Onboard iantruscott.com and Rockstar CMO once Velocity B path is
       proven — not before.
+
