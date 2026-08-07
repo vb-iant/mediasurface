@@ -121,13 +121,50 @@ files that each assume something different about shared state, like a
 schema). Practical mitigation: avoid running two chats against the same
 repo at the same time.
 
+## Storage interface
+
+Implemented in `src/lib/storage/posts.ts`, on top of `src/lib/github/client.ts`
+(single-file reads/writes via the Contents API) and `src/lib/sites/config.ts`
+(per-site repo/branch/path routing). Schema types in `src/lib/storage/schema.ts`.
+
+- `listPosts(site)` — lightweight summaries (frontmatter only, no body), for
+  the admin's post-list view.
+- `getPost(site, slug)` — full post (frontmatter + body + computed reading
+  time).
+- `savePost(site, slug, data)` — create/update. Not yet exercised against a
+  live repo — hold off testing real writes until the editor UI exists.
+- `saveMedia(site, filename, buffer)` — uploads to the site's media path,
+  returns the public path.
+- `deletePost` / `postExists` also added, beyond the original four-function
+  list, since the admin will need them.
+
+**Proven against real Velocity B content** (`scripts/smoke-test-storage.ts`,
+read-only): `listPosts("velocity-b")` correctly returns all 37 posts, sorted
+newest-first; `getPost` correctly parses frontmatter and computes reading
+time (verified: 6,646-char body → "6 min read").
+
+Frontmatter shape confirmed from real Velocity B posts: `title`, `slug`,
+`date`, `author` (currently always a single string across all 37 posts —
+schema accepts `string | string[]` for forward-compatible multi-author
+support), `tags`, `excerpt`, and an optional `originalUrl` migration
+artifact. `featuredImage`, `status`, `seoTitle`, `seoDescription` are in the
+schema per the doc's spec but not yet present on existing posts.
+
+**Token resolution:** `github/client.ts` checks for a per-repo env var first
+(e.g. `GITHUB_TOKEN_VELOCITY_B`) before falling back to `GITHUB_TOKEN` — so
+splitting into fine-grained per-repo PATs later needs no code changes.
+
 ## Status / next steps
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
-- [ ] Vercel project for `mediasurface` connected.
-- [ ] Storage interface built and proven against `vb-iant/velocity-b`
-      (existing, live content) before wiring in other sites.
-- [ ] Shared blog schema + `site-config.json` defined.
+- [x] Storage interface built and proven read-only against
+      `vb-iant/velocity-b` (37 posts, real content).
+- [ ] Vercel project for `mediasurface` connected (in progress — custom
+      domain `mediasurface.app` acquired).
+- [ ] `savePost` tested against a live repo — deliberately deferred until
+      the editor UI exists, to avoid test commits on a live site.
+- [ ] Auth (password gate) built.
+- [ ] Admin UI: post list + editor, wired to the storage interface.
 - [ ] Velocity B site-switcher entry wired end-to-end (create/edit a post →
       commit → live on velocity-b.com).
 - [ ] Onboard iantruscott.com and Rockstar CMO once Velocity B path is
