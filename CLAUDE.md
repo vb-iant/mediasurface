@@ -251,6 +251,28 @@ solve. **Velocity B and mediasurface are the two sites where this view's
 output can currently be trusted; Rockstar CMO's is cosmetic-only until
 that reconciliation happens.**
 
+## Sites hidden from the switcher (2026-08-08)
+
+`iantruscott` and `rockstarcmo` are hidden from selection (site switcher,
+current-site validation) via `available: false` in `site-config.ts`,
+rather than removed from the config entirely — the repo/path/schema info
+stays intact for when each is genuinely ready, this just stops them being
+selectable in the meantime. `listAvailableSites()` filters them out;
+`listSites()` still returns everything configured, for anything that
+genuinely needs the full list regardless of availability.
+
+Both current-site validation paths respect this: `getCurrentSiteId()`
+falls back to the default site if a stale/tampered cookie points at a
+hidden one (verified — a cookie manually set to `rockstarcmo` after this
+change correctly resets to Velocity B rather than showing an orphaned
+selection), and the `switchSite` action rejects a direct POST to a hidden
+site's id even if it bypasses the `<select>` (verified — no cookie is set,
+same rejection path as an entirely invalid site id).
+
+Currently selectable: `velocity-b`, `mediasurface`. Re-enable `iantruscott`
+once its repo exists; re-enable `rockstarcmo` once the schema
+reconciliation work (see above) is done.
+
 ## Vercel
 
 - No Vercel API token needed or used — Claude never calls the Vercel API
