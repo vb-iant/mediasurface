@@ -128,31 +128,39 @@ Run a full `next build` (not just an `esbuild`/type-check pass) before every
 push — `esbuild` doesn't catch TypeScript type conflicts that a real build
 will.
 
-## mediasurface's own /blog: now live, not fixtures (2026-08-08)
+## mediasurface's own /blog: real content, read off local disk (2026-08-08, corrected same day)
 
-`/blog` and `/blog/[slug]` used to render three static fixture files bundled
-at build time, specifically to avoid a runtime GitHub API dependency on a
-public route (an earlier version hit the GitHub API live and produced a
-visible public error — see git history around 2026-08-07).
+`/blog` and `/blog/[slug]` used to render three static fixture files, kept
+deliberately separate from real content, specifically to avoid a runtime
+GitHub API dependency on a public route (an earlier version hit the GitHub
+API live and produced a visible public error — see git history around
+2026-08-07).
 
-That's been deliberately reversed. mediasurface is now a real site in
-`site-config.ts` (`content/blog` at the repo root, same shape as the other
-three), and `/blog` reads live via the storage interface
-(`getPost`/`listPosts`), dynamic/per-request (`export const dynamic =
-"force-dynamic"`). Reasoning: mediasurface needs to be a genuine
-admin-editable test/sandbox — build a new schema field or display change,
-create/edit a test post through the admin editor itself (not just hand-edit
-a fixture file), and see it rendered immediately. That requires real,
-live-editable content.
+mediasurface is now a real site in `site-config.ts` (`content/blog` at the
+repo root, same shape as the other three) — that part stands. Reasoning:
+mediasurface needs to be a genuine admin-editable test/sandbox — build a
+new schema field or display change, create/edit a test post through the
+admin editor itself, and see it rendered. That requires real,
+admin-editable content, which content/blog now is.
 
-**Consequence worth remembering:** `/blog` now depends on `GITHUB_TOKEN` at
-runtime, same as the rest of the admin — and unlike the admin routes,
-`/blog` is public, not behind the password gate. If `GITHUB_TOKEN` is ever
-missing/invalid in Vercel, `/blog` breaks publicly, not just the admin.
-Same risk category as before, deliberately re-accepted this time because
-the token dependency already exists everywhere else in this app — this
-isn't a new category of fragility, just extending an existing one to one
-more route.
+**Correction (same day):** `/blog` briefly read that content live via the
+storage interface (GitHub API), dynamic/per-request — reintroducing a
+`GITHUB_TOKEN` dependency on a public route, the same failure mode already
+avoided once. That was wrong. `/blog` doesn't need the GitHub API at all:
+`content/blog` is checked into THIS repo, the same repo mediasurface's own
+app builds from, so it's already on disk at build time — no different
+from how velocity-b's own deployed site will read its own content once
+migrated onto this implementation (a repo reading its own checked-out
+files, not calling out to GitHub for them). `/blog` and `/blog/[slug]` are
+back to static generation (`generateStaticParams`, no
+`export const dynamic`), reading via `src/lib/blog/local-content.ts` (`fs`
+against `content/blog`), zero `GITHUB_TOKEN` dependency, verified by
+building and running with the token completely unset.
+
+The storage interface (GitHub API) is still exactly right for what the
+admin's editor does — writing to mediasurface's own `content/blog`, or any
+other site's repo remotely — because that's genuinely cross-repo access. A
+repo reading its own files isn't; the earlier version conflated the two.
 
 ## Vercel
 
