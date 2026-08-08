@@ -218,6 +218,39 @@ calls per page load for a large site. Fine at current usage, but if this
 becomes a frequently-reloaded hot path, the Git Trees API (one recursive
 call) would be a better fit than one Contents API call per file.
 
+**Correction, same day (per Ian):** "373 rows rendered for rockstarcmo"
+proves `listPosts()` doesn't crash on unfamiliar frontmatter. It does NOT
+prove the display is correct. Confirmed directly against real post
+frontmatter (`12-days-of-rockstar-cmo-christmas.md`,
+`5-fin-fundamentals-marketing-operations.md`) — Rockstar CMO's real posts
+(WordPress migration) diverge from the normalized schema in ways that
+render silently wrong, not silently missing:
+
+- `tags` is usually an empty array — real categorization lives in a
+  `series` field the schema doesn't know about (e.g. `series:
+  [the-magic-of-christmas-issue]`). The Posts table shows "—" for almost
+  every Rockstar CMO post, which reads as "no tags" but is really "wrong
+  field."
+- `author` is a raw display name (`"Ian Truscott"`) plus a separate
+  `authorSlug` — displays as text fine, but isn't the slug-based
+  convention velocity-b uses, so anything resolving authors against
+  `content/authors/*.md` later won't find a match.
+- Featured image is `image`, not `featuredImage` — the post editor's
+  image picker and OG toggle (already scoped in later tasks) will see
+  nothing there once built, even though every post has one.
+- Migration artifacts (`sourceId`, `sourceUrl`, `needsReview`,
+  `excerptGenerated`) aren't part of the schema and are currently just
+  silently dropped.
+
+This is expected, already-scoped work — see the Rockstar CMO schema gaps
+on the main board (`tm-1786117963464`) and the Phase 1→2 checkpoint
+(`tm-1786118570378`). Real Rockstar CMO onboarding is schema-reconciliation
+work that happens once the mediasurface reference implementation is
+designed and built, not something the post list view was ever meant to
+solve. **Velocity B and mediasurface are the two sites where this view's
+output can currently be trusted; Rockstar CMO's is cosmetic-only until
+that reconciliation happens.**
+
 ## Vercel
 
 - No Vercel API token needed or used — Claude never calls the Vercel API
