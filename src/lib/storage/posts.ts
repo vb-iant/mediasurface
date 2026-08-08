@@ -46,27 +46,64 @@ export async function getPost(site: SiteId, slug: string): Promise<Post> {
 }
 
 /**
+ * Runs async work over items with a concurrency cap, rather than firing
+ * everything at once. listPosts used an unbounded Promise.all here until
+ * 2026-08-08 — fine against velocity-b's 37 posts, but firing 373
+ * simultaneous requests (rockstarcmo's real post count) caused outright
+ * connection failures even though GitHub's actual rate limit wasn't close
+ * to exhausted. This isn't about the API quota — it's about not opening
+ * hundreds of sockets from one process at once.
+ */
+async function mapWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  );
+
+  return results;
+}
+
+/**
  * Lists all posts for a site. Returns lightweight summaries (frontmatter
  * only, no body) so the admin's post-list view doesn't have to fetch and
  * parse every post's full content just to render a table.
+ *
+ * Cost note: this fetches every post's file individually (one GitHub API
+ * call per post, plus one to list the directory) — a site with hundreds
+ * of posts means hundreds of calls per listPosts() invocation. Fine at
+ * current usage levels (GitHub's per-token limit is 5000/hour), but if
+ * the post list becomes a frequently-reloaded hot path, revisit with the
+ * Git Trees API (one recursive call) instead of one Contents API call per
+ * file.
  */
 export async function listPosts(site: SiteId): Promise<PostSummary[]> {
   const config = getSiteConfig(site);
   const files = await listDir(config.repo, config.branch, config.blogPath);
   const mdFiles = files.filter((f) => f.name.endsWith(".md"));
 
-  const summaries = await Promise.all(
-    mdFiles.map(async (f) => {
-      const file = await getFile(config.repo, config.branch, f.path);
-      const { data } = matter(file.content);
-      const frontmatter = data as PostFrontmatter;
-      return {
-        ...frontmatter,
-        slug: frontmatter.slug || filenameToSlug(f.name),
-        path: f.path,
-      };
-    })
-  );
+  const summaries = await mapWithConcurrencyLimit(mdFiles, 8, async (f) => {
+    const file = await getFile(config.repo, config.branch, f.path);
+    const { data } = matter(file.content);
+    const frontmatter = data as PostFrontmatter;
+    return {
+      ...frontmatter,
+      slug: frontmatter.slug || filenameToSlug(f.name),
+      path: f.path,
+    };
+  });
 
   // Newest first.
   return summaries.sort(

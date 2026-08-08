@@ -79,8 +79,12 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
   },
   rockstarcmo: {
     name: "Rockstar CMO",
-    // Repo migration in progress — update once it exists.
-    repo: "vb-iant/rockstarcmo",
+    // Confirmed 2026-08-08 against the real repo (was wrongly "rockstarcmo"
+    // — no hyphen — before this fix; that mismatch would have silently
+    // shown this site's 373 real migrated posts as "no posts yet", since
+    // listDir treats a 404 as an empty/newly-onboarded site rather than an
+    // error).
+    repo: "vb-iant/rockstar-cmo",
     branch: "main",
     blogPath: "content/blog",
     authorsPath: "content/authors",
