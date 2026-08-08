@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { listSites, getSiteConfig } from "@/lib/sites/config";
+import { listAvailableSites, getSiteConfig } from "@/lib/sites/config";
 import { getCurrentSiteId } from "@/lib/sites/current-site";
 import { logout } from "../login/actions";
 import { SiteSwitcher } from "./site-switcher";
@@ -11,7 +11,7 @@ export default async function AdminShellLayout({
   children: ReactNode;
 }) {
   const currentSite = await getCurrentSiteId();
-  const sites = listSites().map((id) => ({
+  const sites = listAvailableSites().map((id) => ({
     id,
     name: getSiteConfig(id).name,
   }));

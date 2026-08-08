@@ -31,6 +31,12 @@ export interface SiteConfig {
   mediaPath: string;
   /** Live site base URL, used to build preview/"view live" links. */
   siteUrl: string;
+  /** Whether this site is selectable in the admin (switcher, current-site
+   *  validation). Defaults to true if omitted. Set to false for a site
+   *  that's configured but not yet ready for real editorial use — the
+   *  config (repo, paths, schema) stays intact for when it is, it's just
+   *  not offered as an option in the meantime. See CLAUDE.md. */
+  available?: boolean;
 }
 
 export const siteConfigs: Record<SiteId, SiteConfig> = {
@@ -76,6 +82,10 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
     documentsPath: "public/documents",
     mediaPath: "public/media",
     siteUrl: "https://iantruscott.com",
+    // Hidden from the switcher 2026-08-08 (per Ian) — no repo exists yet,
+    // nothing here to actually select. Re-enable once the repo is created
+    // and this site is genuinely ready for editorial use.
+    available: false,
   },
   rockstarcmo: {
     name: "Rockstar CMO",
@@ -96,6 +106,13 @@ export const siteConfigs: Record<SiteId, SiteConfig> = {
     // they're pulled live via RSS/ISR on the site side. Only blog posts and
     // pages go through this admin. See CLAUDE.md.
     siteUrl: "https://rockstarcmo.com",
+    // Hidden from the switcher 2026-08-08 (per Ian) — real posts (WordPress
+    // migration) diverge from the normalized schema (tags vs. series,
+    // author name vs. slug, image vs. featuredImage — see CLAUDE.md "Post
+    // list view + two real bugs found and fixed"). Re-enable once that
+    // schema reconciliation happens, designed against the mediasurface
+    // reference implementation first.
+    available: false,
   },
 };
 
@@ -109,4 +126,12 @@ export function getSiteConfig(site: SiteId): SiteConfig {
 
 export function listSites(): SiteId[] {
   return Object.keys(siteConfigs) as SiteId[];
+}
+
+/** Sites selectable in the admin (switcher, current-site validation) —
+ *  excludes any site explicitly marked `available: false`. Prefer this
+ *  over listSites() everywhere the UI or a security-relevant check needs
+ *  "what can actually be picked right now," not "everything configured." */
+export function listAvailableSites(): SiteId[] {
+  return listSites().filter((id) => siteConfigs[id].available !== false);
 }
