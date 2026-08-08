@@ -273,6 +273,17 @@ Currently selectable: `velocity-b`, `mediasurface`. Re-enable `iantruscott`
 once its repo exists; re-enable `rockstarcmo` once the schema
 reconciliation work (see above) is done.
 
+**Instruction for any session working in this repo:** do not read, test
+against, or re-enable `rockstarcmo` content as a matter of convenience —
+not as a large-dataset stress test, not to "just check" something, not
+because it's real data and everything else is small. It's hidden
+specifically so there's no temptation to reach for it before the schema
+work is scoped, even with good intentions (e.g. "let's verify pagination
+against a bigger site" — don't; velocity-b and mediasurface are enough).
+If a task genuinely seems to require touching `rockstarcmo`, stop and
+confirm with Ian first, the same rule already in place for editing
+`vb-iant/velocity-b` directly.
+
 ## Post list pagination (2026-08-08)
 
 `/admin/posts` paginates at 20/page via `?page=` — no client JS, plain
