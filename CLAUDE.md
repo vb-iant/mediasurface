@@ -184,6 +184,40 @@ value from the `<select>`).
 a fresh session should land somewhere with real editorial content, not
 the test/sandbox.
 
+## Post list view + two real bugs found and fixed (2026-08-08)
+
+`/admin/posts` lists posts for the current site via `listPosts()`. Building
+this against real content (not just velocity-b's already-proven 37 posts)
+surfaced two genuine bugs in code previously marked "already built and
+proven":
+
+**1. `rockstarcmo`'s repo name was wrong in `site-config.ts`** —
+`vb-iant/rockstarcmo` (no hyphen), when the real repo is
+`vb-iant/rockstar-cmo`. `listDir` treats a 404 as "no posts yet" (a normal
+state for a newly-onboarded site), not an error — so this typo would have
+silently shown Rockstar CMO as empty in the admin, when it actually has
+373 real migrated posts. Fixed. Worth remembering: a 404-tolerant design
+choice (reasonable on its own) can mask a completely different problem
+(wrong repo name) as a completely normal one (empty site) — the two look
+identical from the caller's side.
+
+**2. `listPosts()` had unbounded concurrency.** It fetched every post's
+file with a plain `Promise.all` over all matching files at once — fine
+against velocity-b's 37 posts, but firing 373 simultaneous requests
+(rockstarcmo's real count) caused intermittent connection failures, even
+though GitHub's actual rate limit (5000/hour) wasn't close to exhausted.
+Fixed with a concurrency cap of 8 (`mapWithConcurrencyLimit` in
+`src/lib/storage/posts.ts`). Confirmed via a standalone script that the
+raw GitHub API handled all 373 fetches fine even unbounded — the failure
+was about not opening hundreds of sockets from one process at once, not
+about API quota.
+
+Cost note carried over into the code comments: `listPosts()` is still one
+GitHub API call per post (plus one to list the directory) — hundreds of
+calls per page load for a large site. Fine at current usage, but if this
+becomes a frequently-reloaded hot path, the Git Trees API (one recursive
+call) would be a better fit than one Contents API call per file.
+
 ## Vercel
 
 - No Vercel API token needed or used — Claude never calls the Vercel API
