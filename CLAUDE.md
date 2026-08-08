@@ -18,6 +18,7 @@ up, since they're separate Vercel projects reading from their own repos.
 
 | Site | Repo | Content shape |
 |---|---|---|
+| **mediasurface (test/sandbox)** | `vb-iant/mediasurface` (self) | Not a real editorial site. Where new front-end functionality (schema fields, display logic) is built and tested end-to-end — editor UI included — before being ported to the real sites below. |
 | Velocity B (velocity-b.com) | `vb-iant/velocity-b` | Pages + blog (multi-author, tags, reading time, related posts, OG images) |
 | iantruscott.com | TBD (not yet created) | Pages + blog ("Ideas"). Newsletter/subscribe is a separate tool decision, not CMS scope. |
 | Rockstar CMO (rockstarcmo.com) | TBD (migration in progress) | Pages + blog posts only. **Podcast episodes are NOT admin content** — pulled live via RSS/ISR on the site side. |
@@ -126,6 +127,32 @@ and sessions in play.
 Run a full `next build` (not just an `esbuild`/type-check pass) before every
 push — `esbuild` doesn't catch TypeScript type conflicts that a real build
 will.
+
+## mediasurface's own /blog: now live, not fixtures (2026-08-08)
+
+`/blog` and `/blog/[slug]` used to render three static fixture files bundled
+at build time, specifically to avoid a runtime GitHub API dependency on a
+public route (an earlier version hit the GitHub API live and produced a
+visible public error — see git history around 2026-08-07).
+
+That's been deliberately reversed. mediasurface is now a real site in
+`site-config.ts` (`content/blog` at the repo root, same shape as the other
+three), and `/blog` reads live via the storage interface
+(`getPost`/`listPosts`), dynamic/per-request (`export const dynamic =
+"force-dynamic"`). Reasoning: mediasurface needs to be a genuine
+admin-editable test/sandbox — build a new schema field or display change,
+create/edit a test post through the admin editor itself (not just hand-edit
+a fixture file), and see it rendered immediately. That requires real,
+live-editable content.
+
+**Consequence worth remembering:** `/blog` now depends on `GITHUB_TOKEN` at
+runtime, same as the rest of the admin — and unlike the admin routes,
+`/blog` is public, not behind the password gate. If `GITHUB_TOKEN` is ever
+missing/invalid in Vercel, `/blog` breaks publicly, not just the admin.
+Same risk category as before, deliberately re-accepted this time because
+the token dependency already exists everywhere else in this app — this
+isn't a new category of fragility, just extending an existing one to one
+more route.
 
 ## Vercel
 
