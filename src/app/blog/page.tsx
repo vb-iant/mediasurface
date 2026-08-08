@@ -4,32 +4,27 @@
 // is reference-only during this build, not touched — it migrates onto
 // this implementation once proven, as a deliberate cutover.
 //
-// Renders real Velocity B content via the storage interface. Dynamic
-// (not statically generated at mediasurface's own build time) since
-// content lives in a separate repo and changes independently of this
-// app's deploys.
+// Renders LOCAL FIXTURE content (src/content/blog/*.md), not live GitHub
+// content. Deliberate: this route's job is to prove the rendering logic
+// (draft filtering, Markdown rendering, layout) works, which doesn't
+// require a live remote content source — and a live GitHub dependency
+// here wouldn't even match production, since velocity-b (once migrated)
+// reads its own content from local files, exactly like this does with
+// fixtures. Statically generated at build time, same as production.
+//
+// The ADMIN (not this route) is what genuinely needs live GitHub access,
+// via src/lib/storage/posts.ts — that's a real, separate requirement.
 
 import Link from "next/link";
-import { listPosts } from "@/lib/storage/posts";
+import { getLocalPosts } from "@/lib/blog/local-content";
 import type { PostSummary } from "@/lib/storage/schema";
-
-export const dynamic = "force-dynamic";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
 }
 
-// Draft/published filtering lives here — the behavior velocity-b's own
-// code currently lacks entirely. A post with no status field is treated
-// as published (matches all 37 real posts, none of which set this field
-// yet), so onboarding this filter never silently hides existing content.
-function isPublished(post: PostSummary): boolean {
-  return post.status !== "draft";
-}
-
-export default async function BlogIndexPage() {
-  const allPosts = await listPosts("velocity-b");
-  const posts = allPosts.filter(isPublished);
+export default function BlogIndexPage() {
+  const posts: PostSummary[] = getLocalPosts();
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 760, margin: "0 auto" }}>

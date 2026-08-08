@@ -1,23 +1,26 @@
 // Blog post detail — reference implementation, see page.tsx and
 // CLAUDE.md "Velocity B blog front-end migration" for context.
 //
-// Decision made here (was an open question in earlier planning): a direct
-// URL to a draft post 404s, same as a nonexistent slug. Simpler and safer
-// default than "reachable but unlisted" — a draft isn't publicly visible
-// by any path until it's published. Admin preview of drafts (seeing a
-// draft before publishing) is a different, separate feature for inside
-// the gated admin UI, not this public route.
+// Renders LOCAL FIXTURE content, not live GitHub content — same
+// reasoning as the index route (page.tsx). Statically generated at
+// build time via generateStaticParams below, matching how production
+// will actually work once velocity-b migrates onto this implementation.
+//
+// A direct URL to a draft's slug 404s, same as a nonexistent slug —
+// simpler and safer default than "reachable but unlisted." Admin preview
+// of drafts is a different, separate feature inside the gated admin UI.
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { getPost } from "@/lib/storage/posts";
-import { GitHubNotFoundError } from "@/lib/github/client";
-
-export const dynamic = "force-dynamic";
+import { getLocalPost, getLocalPublishedSlugs } from "@/lib/blog/local-content";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
+}
+
+export function generateStaticParams() {
+  return getLocalPublishedSlugs().map((slug) => ({ slug }));
 }
 
 export default async function BlogPostPage({
@@ -26,18 +29,9 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const post = getLocalPost(slug);
 
-  let post;
-  try {
-    post = await getPost("velocity-b", slug);
-  } catch (err) {
-    if (err instanceof GitHubNotFoundError) notFound();
-    throw err;
-  }
-
-  if (post.status === "draft") {
-    notFound();
-  }
+  if (!post) notFound();
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 720, margin: "0 auto" }}>
