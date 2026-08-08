@@ -1,10 +1,10 @@
-// Blog post detail — reference implementation, see page.tsx and
-// CLAUDE.md "Velocity B blog front-end migration" for context.
+// Blog post detail — reference implementation, see page.tsx and CLAUDE.md
+// "Velocity B blog front-end migration" for context.
 //
-// Renders LOCAL FIXTURE content, not live GitHub content — same
-// reasoning as the index route (page.tsx). Statically generated at
-// build time via generateStaticParams below, matching how production
-// will actually work once velocity-b migrates onto this implementation.
+// Reads LIVE via the storage interface against mediasurface's own
+// content/blog — same reasoning as the index route. Dynamic/per-request,
+// no generateStaticParams (a build isn't required to see a new/edited
+// post appear).
 //
 // A direct URL to a draft's slug 404s, same as a nonexistent slug —
 // simpler and safer default than "reachable but unlisted." Admin preview
@@ -13,14 +13,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { getLocalPost, getLocalPublishedSlugs } from "@/lib/blog/local-content";
+import { getPost } from "@/lib/storage/posts";
+import { GitHubNotFoundError } from "@/lib/github/client";
+
+export const dynamic = "force-dynamic";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
-}
-
-export function generateStaticParams() {
-  return getLocalPublishedSlugs().map((slug) => ({ slug }));
 }
 
 export default async function BlogPostPage({
@@ -29,9 +28,13 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const post = getLocalPost(slug);
 
-  if (!post) notFound();
+  const post = await getPost("mediasurface", slug).catch((err) => {
+    if (err instanceof GitHubNotFoundError) return null;
+    throw err;
+  });
+
+  if (!post || post.status === "draft") notFound();
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 720, margin: "0 auto" }}>

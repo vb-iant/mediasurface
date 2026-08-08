@@ -6,7 +6,7 @@
  * See CLAUDE.md for the architecture decisions this reflects.
  */
 
-export type SiteId = "velocity-b" | "iantruscott" | "rockstarcmo";
+export type SiteId = "velocity-b" | "iantruscott" | "rockstarcmo" | "mediasurface";
 
 export interface SiteConfig {
   /** Human-readable name, for admin UI display. */
@@ -34,6 +34,24 @@ export interface SiteConfig {
 }
 
 export const siteConfigs: Record<SiteId, SiteConfig> = {
+  mediasurface: {
+    name: "mediasurface (test/sandbox)",
+    // Self-referential by design: this is mediasurface's OWN repo, the
+    // same one the admin app itself runs from. Not a real editorial site —
+    // it's where new front-end functionality (new schema fields, new
+    // display logic) gets built and tested end-to-end, editor UI included,
+    // before the proven code is ported to velocity-b/rockstarcmo/
+    // iantruscott. A content commit here redeploys the admin app itself
+    // (same Vercel project) — expected and fine for a test site, unlike
+    // the other three where admin and site are separate deployments.
+    repo: "vb-iant/mediasurface",
+    branch: "main",
+    blogPath: "content/blog",
+    imagesPath: "public/images",
+    documentsPath: "public/documents",
+    mediaPath: "public/media",
+    siteUrl: "https://mediasurface.app/blog",
+  },
   "velocity-b": {
     name: "Velocity B",
     repo: "vb-iant/velocity-b",

@@ -1,30 +1,40 @@
-// Blog index — this is the reference implementation for how blog listing
-// should work across all sites, built and owned in mediasurface. See
-// CLAUDE.md "Velocity B blog front-end migration": velocity-b's own code
-// is reference-only during this build, not touched — it migrates onto
-// this implementation once proven, as a deliberate cutover.
+// Blog index — reference implementation for how blog listing should work
+// across all sites, built and owned in mediasurface. See CLAUDE.md
+// "Velocity B blog front-end migration": velocity-b's own code is
+// reference-only during this build, not touched — it migrates onto this
+// implementation once proven, as a deliberate cutover.
 //
-// Renders LOCAL FIXTURE content (src/content/blog/*.md), not live GitHub
-// content. Deliberate: this route's job is to prove the rendering logic
-// (draft filtering, Markdown rendering, layout) works, which doesn't
-// require a live remote content source — and a live GitHub dependency
-// here wouldn't even match production, since velocity-b (once migrated)
-// reads its own content from local files, exactly like this does with
-// fixtures. Statically generated at build time, same as production.
+// Reads LIVE via the storage interface against mediasurface's own
+// content/blog (site "mediasurface" in site-config.ts) — mediasurface is a
+// real, admin-editable test/sandbox site now, not a static fixture. New
+// schema fields and display logic get built and tested here, editor UI
+// included, before being ported to the other sites. Dynamic/per-request
+// rendering — no build required to see a content change take effect,
+// though a push via the admin still triggers a Vercel redeploy of this
+// app anyway (same repo).
 //
-// The ADMIN (not this route) is what genuinely needs live GitHub access,
-// via src/lib/storage/posts.ts — that's a real, separate requirement.
+// Draft filtering happens HERE, not in the shared storage interface —
+// listPosts() returns everything (the admin's post-list view needs drafts
+// too), so this route applies its own "published only" filter, same as
+// production sites will need to.
 
 import Link from "next/link";
-import { getLocalPosts } from "@/lib/blog/local-content";
+import { listPosts } from "@/lib/storage/posts";
 import type { PostSummary } from "@/lib/storage/schema";
+
+export const dynamic = "force-dynamic";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
 }
 
-export default function BlogIndexPage() {
-  const posts: PostSummary[] = getLocalPosts();
+function isPublished(post: PostSummary): boolean {
+  return post.status !== "draft";
+}
+
+export default async function BlogIndexPage() {
+  const allPosts = await listPosts("mediasurface");
+  const posts = allPosts.filter(isPublished);
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 760, margin: "0 auto" }}>
