@@ -42,9 +42,21 @@ up, since they're separate Vercel projects reading from their own repos.
 5. **Each site deploys exactly as it does now.** Admin writes to a site's
    repo via the batched blob→tree→commit→ref sequence; Vercel notices the
    push and deploys on its own. **No Vercel API calls from the admin.**
-6. **Auth: simple password gate.** Server-side, HttpOnly signed session
-   cookie, HMAC via Web Crypto. No per-user accounts needed at this scale
-   (Ian + Alex).
+6. **Auth: simple password gate on `/admin/*` only.** Built 2026-08-08.
+   Server-side, HttpOnly signed session cookie (`ms_session`), HMAC-SHA256
+   via Web Crypto, 1-day expiry. No per-user accounts needed at this scale
+   (Ian + Alex). Scope corrected from an earlier "gate the whole app"
+   framing — the homepage and `/blog` are intentionally public and were
+   never touched. Login lives at `/admin/login`; everything else under
+   `/admin` requires a valid session. Implemented in `src/proxy.ts` (not
+   `middleware.ts` — Next.js 16 renamed the convention; a leftover
+   `middleware.ts` is silently ignored at runtime with no build error, so
+   this matters if anyone's tempted to "restore" the old filename).
+   Requires `ADMIN_PASSWORD` and `AUTH_SECRET` env vars, set directly in
+   Vercel (Production + Preview) — never committed, see the incident note
+   in `mediasurface-github-credentials.md`-style project knowledge about
+   why these get generated and handed over out-of-band rather than
+   round-tripped through a file in the repo.
 
 ## Deliberately out of scope
 
