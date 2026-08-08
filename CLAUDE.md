@@ -273,6 +273,22 @@ Currently selectable: `velocity-b`, `mediasurface`. Re-enable `iantruscott`
 once its repo exists; re-enable `rockstarcmo` once the schema
 reconciliation work (see above) is done.
 
+## Post list pagination (2026-08-08)
+
+`/admin/posts` paginates at 20/page via `?page=` — no client JS, plain
+`<Link>`s so it works without JS and stays simple. `listPosts()` still
+fetches every post's frontmatter up front (see the cost note above) —
+pagination only affects what's rendered, not how many GitHub API calls
+`listPosts()` makes. If that ever becomes the bottleneck (not yet, at
+current post counts and usage), it'd need pagination pushed down into the
+storage interface itself, not just the page.
+
+Out-of-range pages (e.g. a stale bookmark to `?page=5` after switching to
+a site with fewer posts) clamp to the last valid page rather than showing
+an empty page or erroring. Prev/Next links are disabled (`pointer-events-
+none`, not removed) at the bounds — verified page 1, last page, and a
+single-page site all render the correct disabled state.
+
 ## Vercel
 
 - No Vercel API token needed or used — Claude never calls the Vercel API
