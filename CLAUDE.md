@@ -162,6 +162,28 @@ admin's editor does — writing to mediasurface's own `content/blog`, or any
 other site's repo remotely — because that's genuinely cross-repo access. A
 repo reading its own files isn't; the earlier version conflated the two.
 
+## Admin shell + site switcher (2026-08-08)
+
+`/admin` and everything under it uses a route group,
+`src/app/admin/(protected)/`, so the shared shell layout (nav, site
+switcher, logout) wraps only authenticated pages — `/admin/login` stays
+outside the group and renders with no shell chrome. Route groups don't
+affect the URL, so this is purely a file-organization choice, not a
+routing change.
+
+Current site is tracked via a separate cookie, `ms_current_site` (distinct
+from the `ms_session` auth cookie) — HttpOnly, 1-year expiry (it's UI
+preference, not a session). The value is always re-validated against
+`listSites()` server-side before being trusted, both when reading it
+(`getCurrentSiteId()` falls back to the first non-sandbox site on anything
+invalid/missing) and when setting it (the switch action rejects anything
+not in the real site list, even though it should only ever receive a
+value from the `<select>`).
+
+`getCurrentSiteId()` defaults to the first real site, not `mediasurface` —
+a fresh session should land somewhere with real editorial content, not
+the test/sandbox.
+
 ## Vercel
 
 - No Vercel API token needed or used — Claude never calls the Vercel API
