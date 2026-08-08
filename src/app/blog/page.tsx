@@ -4,37 +4,30 @@
 // reference-only during this build, not touched — it migrates onto this
 // implementation once proven, as a deliberate cutover.
 //
-// Reads LIVE via the storage interface against mediasurface's own
-// content/blog (site "mediasurface" in site-config.ts) — mediasurface is a
-// real, admin-editable test/sandbox site now, not a static fixture. New
-// schema fields and display logic get built and tested here, editor UI
-// included, before being ported to the other sites. Dynamic/per-request
-// rendering — no build required to see a content change take effect,
-// though a push via the admin still triggers a Vercel redeploy of this
-// app anyway (same repo).
+// Reads content/blog directly off the local filesystem, statically
+// generated at build time — the same pattern velocity-b's own deployed
+// site will use once migrated: a repo's own front-end reads its own
+// already-checked-out content, no GitHub API call needed. content/blog is
+// real, admin-editable content (the admin writes to it via the storage
+// interface/GitHub API — cross-repo write access genuinely needs that),
+// but THIS route, reading its own repo's own files, doesn't. Zero
+// GITHUB_TOKEN dependency on a route that's public, not behind the gate.
 //
-// Draft filtering happens HERE, not in the shared storage interface —
-// listPosts() returns everything (the admin's post-list view needs drafts
-// too), so this route applies its own "published only" filter, same as
-// production sites will need to.
+// Draft filtering happens in the local-content loader — listPosts() via
+// the storage interface (used by the admin's post-list view) returns
+// everything, drafts included, since the admin needs to see and edit
+// those too.
 
 import Link from "next/link";
-import { listPosts } from "@/lib/storage/posts";
+import { getLocalPosts } from "@/lib/blog/local-content";
 import type { PostSummary } from "@/lib/storage/schema";
-
-export const dynamic = "force-dynamic";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
 }
 
-function isPublished(post: PostSummary): boolean {
-  return post.status !== "draft";
-}
-
-export default async function BlogIndexPage() {
-  const allPosts = await listPosts("mediasurface");
-  const posts = allPosts.filter(isPublished);
+export default function BlogIndexPage() {
+  const posts: PostSummary[] = getLocalPosts();
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 760, margin: "0 auto" }}>

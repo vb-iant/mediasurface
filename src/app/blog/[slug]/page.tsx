@@ -1,10 +1,9 @@
 // Blog post detail — reference implementation, see page.tsx and CLAUDE.md
 // "Velocity B blog front-end migration" for context.
 //
-// Reads LIVE via the storage interface against mediasurface's own
-// content/blog — same reasoning as the index route. Dynamic/per-request,
-// no generateStaticParams (a build isn't required to see a new/edited
-// post appear).
+// Statically generated via generateStaticParams, reading content/blog off
+// the local filesystem — same reasoning as the index route. No GitHub API
+// call, no GITHUB_TOKEN dependency.
 //
 // A direct URL to a draft's slug 404s, same as a nonexistent slug —
 // simpler and safer default than "reachable but unlisted." Admin preview
@@ -13,13 +12,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { getPost } from "@/lib/storage/posts";
-import { GitHubNotFoundError } from "@/lib/github/client";
-
-export const dynamic = "force-dynamic";
+import { getLocalPost, getLocalPublishedSlugs } from "@/lib/blog/local-content";
 
 function normalizeAuthorLabel(author: string | string[]): string {
   return Array.isArray(author) ? author.join(", ") : author;
+}
+
+export function generateStaticParams() {
+  return getLocalPublishedSlugs().map((slug) => ({ slug }));
 }
 
 export default async function BlogPostPage({
@@ -28,13 +28,9 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const post = getLocalPost(slug);
 
-  const post = await getPost("mediasurface", slug).catch((err) => {
-    if (err instanceof GitHubNotFoundError) return null;
-    throw err;
-  });
-
-  if (!post || post.status === "draft") notFound();
+  if (!post) notFound();
 
   return (
     <main style={{ padding: "3rem 1.5rem", maxWidth: 720, margin: "0 auto" }}>
