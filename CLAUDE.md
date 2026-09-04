@@ -360,26 +360,96 @@ above). `mediasurface` builds the reference blog implementation;
 `velocity-b`'s live front-end (`lib/blog.ts` and templates) is not touched
 during development — it gets migrated onto `mediasurface`'s implementation
 once that's proven, as a deliberate cutover, not a series of incremental
-patches to the existing code. Scope for the initial `mediasurface`
-implementation, informed by what's missing from `velocity-b`'s current
-code (found by reading it as reference, not by editing it):
+patches to the existing code.
 
-1. Draft/published enforcement — `velocity-b` currently has none at all
-2. Multi-author rendering — decide if wanted; `velocity-b` only handles a single author string today
-3. OG-image source toggle (generated card vs. featured image)
-4. Reading-time calculation — one implementation, not duplicated later
+**Status as of 2026-09-04: all 9 tracked items done.** Scope grew from the
+original 4 (below, kept for history) after a direct repo comparison found
+more gaps than first assumed. Full list, CTRL board "Mediasurface Admin",
+tracking task `tm-1786122063210`:
 
-Migration is "done" when `velocity-b` is running on `mediasurface`'s blog
-implementation and its live behavior matches what was proven there —
-tracked as a single checklist, not disconnected fixes to the old code.
+1. Draft/published enforcement — done
+2. Multi-author rendering — **backlogged by Ian, not blocking** (`tm-1786120853654`). Built single-author-only; schema/loaders are author-count-agnostic (`normalizeAuthors()`) so multi-author UI can land later without a schema change.
+3. OG-image source toggle + generation — done, see "OG image generation" section below
+4. Reading-time calculation — done (`reading-time` package)
+5. Author entity + author archive pages (`/blog/author/[slug]`) — done
+6. Tags entity + tag rendering — done
+7. Related posts (by shared tags) — done
+8. Pagination + tag filtering (`?tag=`, `/blog/page/[pageNum]`) — done, built together deliberately since Velocity B treats them as one component
+9. RSS feed (`/blog/rss.xml`) — done
+
+Also done, net-new (not a Velocity B parity item — Velocity B has neither):
+- 3-column grid layout (`src/components/blog/PostCard.tsx`), replacing the original bare inline-styled list, using Tailwind's default palette (Tailwind v4 was already configured in this repo but unused by the blog until this).
+- 10 fixture posts / 5 tags with deliberately overlapping tags, added specifically so pagination and related-posts scoring have real data to demonstrate against, not just 2-3 placeholder posts.
+- Author profile photos (`tm-1788540285021`) — Velocity B has no photo capability at all (initials-only avatar). `Author.avatar` existed in the schema since item 5 above but was unwired until this.
+
+Migration is "done" (full site cutover) when `velocity-b.com` is actually
+running on `mediasurface`'s blog implementation — that is **still not
+done**. What's done is `mediasurface`'s reference implementation being
+schema/feature-complete against Velocity B (multi-author aside, by
+choice) — the explicit prerequisite before pointing the **Martech
+Insiders** project at this schema as a content-structure reference (see
+that project's own briefing/CLAUDE.md for its build).
 
 This migration only covers *behavior that the current schema already
-implies* (status, author, ogImageSource, reading time) — it's a
+implies* (status, author, ogImageSource, reading time, tags) — it's a
 narrower, more urgent thing than the longer-term "share front-end code
 across all three sites" direction described below, which stays a Phase
 1→2 question. This migration is Phase 1, and blocks nothing about that
 later direction — it's simply making Velocity B honest about what its own
 schema already claims to support, before Phase 2 adds more sites on top.
+
+## OG image generation (2026-09-04)
+
+Velocity B's real `lib/og.tsx` turned out to be far more site-specific
+than the original 4-item scope assumed: hardcoded navy background
+(`#0A1543`), Space Grotesk font loaded from specific Google Fonts URLs, a
+hand-drawn chevron watermark (`<path d="M26 4 L80 50 L26 96" ...>`),
+specific accent hex values, a "B" badge + "Velocity-B" name. None of that
+is portable to another site as-is — a straight port would have been
+wrong for every site except Velocity B.
+
+**Resolution:** everything that was already just a VALUE (colors, font,
+badge letter, site name) became a config field
+(`src/lib/og/types.ts`'s `OgTemplateConfig`). The one thing that wasn't a
+value — the bespoke chevron SVG — got reframed as "one configurable
+watermark glyph, ghosted large in the background" (Ian's suggestion,
+2026-09-04) rather than trying to generalize arbitrary SVG artwork. That
+reframe is what made this shareable at all: Velocity B's chevron becomes
+`watermarkGlyph: ">"`, Martech Insiders' would be `watermarkGlyph: "M"`,
+etc.
+
+Key pieces:
+- `src/lib/og/theme-colors.ts`'s `readThemeColors()` parses a site's own
+  `globals.css` for `--name: value;` custom properties via regex
+  (deliberately not a full CSS parser — a small known file, not
+  arbitrary CSS). Colors in `OgTemplateConfig` are CSS variable NAMES,
+  not hex values, resolved at render time — change a color in the
+  stylesheet, the OG image follows, nothing to keep in sync by hand.
+- `src/lib/og/render.tsx`'s `renderOgImage(config, {eyebrow, title,
+  accentIndex})` is the only file touching `ImageResponse`.
+- Accent color cycles by a tag's position in `content/tags.json` order
+  (`accentIndexForTag()` in `local-tags.ts`) — same tag always gets the
+  same accent everywhere, matching Velocity B's `accentForTagIndex()`
+  convention.
+- `mediasurface`'s own config (`src/lib/og/mediasurface-config.ts`) is
+  deliberately neutral — this repo has no real brand, the config exists
+  to prove the mechanism works, not to look finished.
+
+**What "shared" means here, importantly:** this is NOT a runtime package
+imported across Velocity B / Martech Insiders / `mediasurface`'s separate
+deployments — there's no shared package between these repos today. It
+means the same pattern as everything else in this migration: the
+renderer + config shape gets copied into a site's own repo with that
+site's own config plugged in when it adopts this. Velocity B keeps its
+existing bespoke `og.tsx` until/unless it migrates.
+
+`ogImageSource`/`featuredImage` toggle: "featured" + a real
+`featuredImage` serves that file's actual bytes directly (content-type
+inferred from extension); anything else (including unset — defaults to
+"generated" per the schema doc comment) generates a card. Verified both
+branches against real fixtures, not just one: a `pricing-*` post fixture
+has `ogImageSource: "featured"` pointing at a real SVG specifically to
+exercise the branch every other fixture skips by default.
 
 ## Front-end normalization
 
@@ -470,22 +540,37 @@ splitting into fine-grained per-repo PATs later needs no code changes.
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
 - [x] Storage interface built and proven read-only against
       `vb-iant/velocity-b` (37 posts, real content).
-- [ ] Vercel project for `mediasurface` connected (in progress — custom
-      domain `mediasurface.app` acquired).
-- [ ] Auth (password gate) built.
-- [ ] Blog front-end built in `mediasurface` (index + post pages) — the
-      reference implementation for how blogs should work across all
-      sites. Not `velocity-b` — that stays untouched, reference only.
+- [x] Vercel project for `mediasurface` connected, custom domain
+      `mediasurface.app` live.
+- [x] Auth (password gate) built.
+- [x] Admin shell + site switcher + post list view (paginated) built.
+- [x] Blog front-end reference implementation built in `mediasurface` —
+      see "Velocity B blog front-end migration" above for the full
+      feature list (authors + photos, tags, related posts, pagination +
+      filtering, RSS, OG images). All 9 originally-tracked items done as
+      of 2026-09-04, only multi-author UI backlogged by choice.
 - [ ] `savePost` tested against a live repo — deliberately deferred until
       the editor UI exists, to avoid test commits on a live site.
-- [ ] Admin UI: post list + editor, wired to the storage interface.
+- [ ] Post editor UI (create/edit, wired to `getPost`/`savePost`) — not
+      started. This remains the first real test of `savePost` against a
+      live repo.
+- [ ] Media manager (browse-everything view + context pickers) — not
+      started.
 - [ ] Velocity B site-switcher entry wired end-to-end (create/edit a post →
       commit → live on velocity-b.com).
 - [ ] Migrate `velocity-b` onto `mediasurface`'s proven blog implementation
       (deliberate cutover, once ready — not incremental patches to the
-      existing `lib/blog.ts`).
+      existing `lib/blog.ts`). Not started; the reference implementation
+      being feature-complete (above) is the prerequisite for this, not
+      the migration itself.
 - [ ] Onboard iantruscott.com and Rockstar CMO once Velocity B path is
-      proven — not before.
+      proven — not before. Rockstar CMO also needs its own schema
+      reconciliation first regardless (tags vs. series, image vs.
+      featuredImage — see "Sites hidden from the switcher" above).
+- [ ] Author profile photo UPLOAD (admin editor picker UI) — the
+      front-end rendering is done (see above), but authors are still only
+      editable by hand-editing markdown files; no author editor exists
+      yet to attach an upload picker to.
 
 
 
