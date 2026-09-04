@@ -9,45 +9,20 @@
 // simpler and safer default than "reachable but unlisted." Admin preview
 // of drafts is a different, separate feature inside the gated admin UI.
 //
-// Author byline: same resolution/fallback pattern as the index page (see
-// page.tsx) — a post's `author` field is a slug into the Author entity,
-// resolved and linked to /blog/author/[slug], falling back to the raw
-// slug, unlinked, if no profile matches.
+// Author byline uses the shared components/blog/AuthorByline.tsx (also
+// used by the index/paginated routes) rather than a local copy.
+//
+// Tag list at the bottom now LINKS to /blog?tag=slug — pagination
+// (tm-1788532452755) built the filtering this depends on, so what was a
+// display-only pill when tags first shipped (tm-1788532439986) is now
+// functional, matching Velocity B's own post-detail tag links.
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { getLocalPost, getLocalPublishedSlugs } from "@/lib/blog/local-content";
-import { getAuthorBySlug } from "@/lib/blog/local-authors";
 import { getPrimaryTag, getResolvedTags } from "@/lib/blog/local-tags";
-import { normalizeAuthors } from "@/lib/storage/schema";
-import type { Author } from "@/lib/storage/schema";
-
-// Tag pills are display-only for now — see page.tsx for why (?tag=
-// filtering needs the pagination component, tm-1788532452755, not built
-// yet). Full tag list still renders at the bottom so the entity/rendering
-// work is genuinely done, just not clickable-to-filter yet.
-
-function AuthorByline({ author }: { author: string | string[] }) {
-  const slugs = normalizeAuthors(author);
-  return (
-    <>
-      {slugs.map((slug, i) => {
-        const resolved: Author | null = getAuthorBySlug(slug);
-        return (
-          <span key={slug}>
-            {i > 0 && ", "}
-            {resolved ? (
-              <Link href={`/blog/author/${resolved.slug}`}>{resolved.name}</Link>
-            ) : (
-              slug
-            )}
-          </span>
-        );
-      })}
-    </>
-  );
-}
+import { AuthorByline } from "@/components/blog/AuthorByline";
 
 export function generateStaticParams() {
   return getLocalPublishedSlugs().map((slug) => ({ slug }));
@@ -99,8 +74,9 @@ export default async function BlogPostPage({
       {allTags.length > 0 && (
         <div style={{ marginTop: "2rem", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
           {allTags.map((tag) => (
-            <span
+            <Link
               key={tag.id}
+              href={`/blog?tag=${tag.slug}`}
               style={{
                 fontSize: "0.75rem",
                 fontWeight: 600,
@@ -108,10 +84,11 @@ export default async function BlogPostPage({
                 border: "1px solid #e5e5e5",
                 borderRadius: "999px",
                 padding: "0.25rem 0.75rem",
+                textDecoration: "none",
               }}
             >
               {tag.name}
-            </span>
+            </Link>
           ))}
         </div>
       )}
