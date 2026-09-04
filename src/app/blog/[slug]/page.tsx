@@ -8,14 +8,39 @@
 // A direct URL to a draft's slug 404s, same as a nonexistent slug —
 // simpler and safer default than "reachable but unlisted." Admin preview
 // of drafts is a different, separate feature inside the gated admin UI.
+//
+// Author byline: same resolution/fallback pattern as the index page (see
+// page.tsx) — a post's `author` field is a slug into the Author entity,
+// resolved and linked to /blog/author/[slug], falling back to the raw
+// slug, unlinked, if no profile matches.
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { getLocalPost, getLocalPublishedSlugs } from "@/lib/blog/local-content";
+import { getAuthorBySlug } from "@/lib/blog/local-authors";
+import { normalizeAuthors } from "@/lib/storage/schema";
+import type { Author } from "@/lib/storage/schema";
 
-function normalizeAuthorLabel(author: string | string[]): string {
-  return Array.isArray(author) ? author.join(", ") : author;
+function AuthorByline({ author }: { author: string | string[] }) {
+  const slugs = normalizeAuthors(author);
+  return (
+    <>
+      {slugs.map((slug, i) => {
+        const resolved: Author | null = getAuthorBySlug(slug);
+        return (
+          <span key={slug}>
+            {i > 0 && ", "}
+            {resolved ? (
+              <Link href={`/blog/author/${resolved.slug}`}>{resolved.name}</Link>
+            ) : (
+              slug
+            )}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 export function generateStaticParams() {
@@ -39,7 +64,7 @@ export default async function BlogPostPage({
       </p>
       <h1 style={{ marginBottom: "0.5rem" }}>{post.title}</h1>
       <div style={{ fontSize: "0.875rem", color: "#666", marginBottom: "2rem" }}>
-        {post.date} · {normalizeAuthorLabel(post.author)} · {post.readingTime}
+        {post.date} · <AuthorByline author={post.author} /> · {post.readingTime}
       </div>
       <article style={{ lineHeight: 1.7 }}>
         <ReactMarkdown>{post.body}</ReactMarkdown>

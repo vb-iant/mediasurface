@@ -42,6 +42,22 @@ export interface Post extends PostSummary {
   readingTime: string;
 }
 
+/**
+ * Author entity, mirroring Velocity B's lib/blog.ts Author shape
+ * (content/authors/*.md — frontmatter is everything but bio; bio is the
+ * markdown body). A post's `author` field is a slug (or array of slugs)
+ * into this entity, not a display name — resolve via getAuthorBySlug
+ * (src/lib/blog/local-authors.ts) before rendering.
+ */
+export interface Author {
+  name: string;
+  slug: string;
+  role?: string;
+  linkedin?: string;
+  avatar?: string;
+  bio: string;
+}
+
 export function normalizeAuthors(author: string | string[]): string[] {
   return Array.isArray(author) ? author : [author];
 }

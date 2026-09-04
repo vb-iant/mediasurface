@@ -17,13 +17,38 @@
 // the storage interface (used by the admin's post-list view) returns
 // everything, drafts included, since the admin needs to see and edit
 // those too.
+//
+// Author byline: a post's `author` field is a slug (or array of slugs)
+// into the Author entity (content/authors/*.md), not a display name.
+// Resolved via getAuthorBySlug and linked to /blog/author/[slug], mirroring
+// Velocity B's PostCard.tsx. An unresolvable slug (no matching profile)
+// falls back to showing the raw slug, unlinked, rather than hiding it.
 
 import Link from "next/link";
 import { getLocalPosts } from "@/lib/blog/local-content";
-import type { PostSummary } from "@/lib/storage/schema";
+import { getAuthorBySlug } from "@/lib/blog/local-authors";
+import { normalizeAuthors } from "@/lib/storage/schema";
+import type { PostSummary, Author } from "@/lib/storage/schema";
 
-function normalizeAuthorLabel(author: string | string[]): string {
-  return Array.isArray(author) ? author.join(", ") : author;
+function AuthorByline({ author }: { author: string | string[] }) {
+  const slugs = normalizeAuthors(author);
+  return (
+    <>
+      {slugs.map((slug, i) => {
+        const resolved: Author | null = getAuthorBySlug(slug);
+        return (
+          <span key={slug}>
+            {i > 0 && ", "}
+            {resolved ? (
+              <Link href={`/blog/author/${resolved.slug}`}>{resolved.name}</Link>
+            ) : (
+              slug
+            )}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 export default function BlogIndexPage() {
@@ -49,7 +74,7 @@ export default function BlogIndexPage() {
                 <Link href={`/blog/${post.slug}`}>{post.title}</Link>
               </h2>
               <div style={{ fontSize: "0.875rem", color: "#666", marginBottom: "0.5rem" }}>
-                {post.date} · {normalizeAuthorLabel(post.author)}
+                {post.date} · <AuthorByline author={post.author} />
               </div>
               {post.excerpt && <p style={{ margin: 0 }}>{post.excerpt}</p>}
             </li>
