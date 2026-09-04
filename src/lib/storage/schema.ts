@@ -58,6 +58,19 @@ export interface Author {
   bio: string;
 }
 
+/**
+ * Tag entity, mirroring Velocity B's lib/blog.ts Tag shape
+ * (content/tags.json — a flat array, not per-tag files like authors). A
+ * post's `tags` field is an array of slugs into this entity — resolve via
+ * getTagBySlug/getAllTags (src/lib/blog/local-tags.ts) before rendering a
+ * display name.
+ */
+export interface Tag {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 export function normalizeAuthors(author: string | string[]): string[] {
   return Array.isArray(author) ? author : [author];
 }

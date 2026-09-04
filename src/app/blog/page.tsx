@@ -27,8 +27,17 @@
 import Link from "next/link";
 import { getLocalPosts } from "@/lib/blog/local-content";
 import { getAuthorBySlug } from "@/lib/blog/local-authors";
+import { getPrimaryTag } from "@/lib/blog/local-tags";
 import { normalizeAuthors } from "@/lib/storage/schema";
 import type { PostSummary, Author } from "@/lib/storage/schema";
+
+// Tag pills are display-only for now, not links — Velocity B's tag click
+// filters the index via a ?tag= query param, which is wired together with
+// its pagination component. mediasurface's index doesn't have pagination
+// or query-param filtering yet (see tm-1788532452755), so a /blog?tag=
+// link here would be dead. Revisit once pagination is built — Velocity B
+// builds tag filtering and pagination as one component, worth doing the
+// same here rather than wiring a plain link now and reworking it later.
 
 function AuthorByline({ author }: { author: string | string[] }) {
   const slugs = normalizeAuthors(author);
@@ -61,7 +70,9 @@ export default function BlogIndexPage() {
         <p>No posts yet.</p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {posts.map((post) => (
+          {posts.map((post) => {
+            const primaryTag = getPrimaryTag(post.tags);
+            return (
             <li
               key={post.slug}
               style={{
@@ -70,6 +81,24 @@ export default function BlogIndexPage() {
                 borderBottom: "1px solid #e5e5e5",
               }}
             >
+              {primaryTag && (
+                <span
+                  style={{
+                    display: "inline-block",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#0055cc",
+                    border: "1px solid #0055cc",
+                    borderRadius: "999px",
+                    padding: "0.15rem 0.65rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  {primaryTag.name}
+                </span>
+              )}
               <h2 style={{ marginBottom: "0.25rem" }}>
                 <Link href={`/blog/${post.slug}`}>{post.title}</Link>
               </h2>
@@ -78,7 +107,8 @@ export default function BlogIndexPage() {
               </div>
               {post.excerpt && <p style={{ margin: 0 }}>{post.excerpt}</p>}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </main>
