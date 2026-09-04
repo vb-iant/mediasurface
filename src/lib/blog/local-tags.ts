@@ -32,6 +32,17 @@ export function getTagBySlug(slug: string): Tag | null {
   return getAllTags().find((t) => t.slug === slug) ?? null;
 }
 
+/** A tag's position in content/tags.json order — used to cycle OG-image
+ * accent colors (src/lib/og) the same way Velocity B's
+ * accentForTagIndex() does, so a given tag always renders with the same
+ * accent regardless of which post or page it appears on. Returns 0 if the
+ * slug doesn't resolve to a known tag. */
+export function accentIndexForTag(tagSlug: string | undefined): number {
+  if (!tagSlug) return 0;
+  const index = getAllTags().findIndex((t) => t.slug === tagSlug);
+  return index === -1 ? 0 : index;
+}
+
 /** The post's first tag, resolved to a Tag entity, or null if it has no
  * tags or its first tag slug doesn't match a known Tag. Mirrors Velocity
  * B's "primaryTag" convention used for the single pill shown on post

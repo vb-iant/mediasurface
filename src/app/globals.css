@@ -3,6 +3,16 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Accent cycle used by both PostCard's border colors and OG-image
+     generation (src/lib/og) — one source of truth for "the site's accent
+     colors" rather than duplicating hex values in TSX. Matches the
+     Tailwind blue-600/orange-500/slate-800 values PostCard.tsx already
+     uses via className, kept here as real values too since OG images
+     render via next/og's ImageResponse (Satori), which can't read
+     Tailwind classes — only plain style values. */
+  --accent-1: #2563eb;
+  --accent-2: #f97316;
+  --accent-3: #1e293b;
 }
 
 @theme inline {

@@ -7,6 +7,8 @@ tags:
   - pricing
   - sales
 excerpt: "A price list built entirely in a spreadsheet, without a rep ever pressure-testing it against a live objection, rarely survives first contact."
+featuredImage: "/images/blog/pricing-featured.svg"
+ogImageSource: "featured"
 ---
 
 Sample fixture content for the mediasurface blog reference implementation. Not a real published post.
