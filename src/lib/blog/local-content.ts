@@ -78,3 +78,27 @@ export function getLocalPost(slug: string): Post | null {
 export function getLocalPublishedSlugs(): string[] {
   return getLocalPosts().map((p) => p.slug);
 }
+
+/** Related posts for a given post, scored by count of shared tags
+ * (descending), tie-broken by most recent date. Excludes the post itself.
+ * Mirrors Velocity B's lib/blog.ts getRelatedPosts() exactly — same
+ * scoring, same tie-break, same default count of 3. Posts with zero
+ * shared tags are excluded entirely rather than padding the list. */
+export function getRelatedPosts(post: PostSummary, count = 3): PostSummary[] {
+  const all = getLocalPosts();
+  const postTags = new Set(post.tags ?? []);
+
+  const scored = all
+    .filter((p) => p.slug !== post.slug)
+    .map((p) => {
+      const sharedTags = (p.tags ?? []).filter((t) => postTags.has(t)).length;
+      return { post: p, sharedTags };
+    })
+    .filter((entry) => entry.sharedTags > 0)
+    .sort((a, b) => {
+      if (b.sharedTags !== a.sharedTags) return b.sharedTags - a.sharedTags;
+      return new Date(b.post.date).getTime() - new Date(a.post.date).getTime();
+    });
+
+  return scored.slice(0, count).map((entry) => entry.post);
+}
