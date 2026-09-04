@@ -2,5 +2,6 @@
   { "id": "sales", "name": "Sales", "slug": "sales" },
   { "id": "forecasting", "name": "Forecasting", "slug": "forecasting" },
   { "id": "leadership", "name": "Leadership", "slug": "leadership" },
-  { "id": "process", "name": "Process", "slug": "process" }
+  { "id": "process", "name": "Process", "slug": "process" },
+  { "id": "pricing", "name": "Pricing", "slug": "pricing" }
 ]
