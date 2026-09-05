@@ -19,9 +19,12 @@ export function PostCard({ post, index }: { post: PostSummary; index: number }) 
   return (
     <div className={`border-t-4 pt-5 ${ACCENT_BORDERS[index % ACCENT_BORDERS.length]}`}>
       {primaryTag && (
-        <span className="mb-3 inline-block rounded-full border border-blue-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-blue-600">
+        <Link
+          href={`/blog?tag=${primaryTag.slug}`}
+          className="mb-3 inline-block rounded-full border border-blue-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-blue-600 hover:bg-blue-600 hover:text-white"
+        >
           {primaryTag.name}
-        </span>
+        </Link>
       )}
       <h2 className="mb-2 text-lg font-bold leading-snug">
         <Link href={`/blog/${post.slug}`} className="hover:text-blue-600">

@@ -12,8 +12,11 @@
 // Author byline uses the shared components/blog/AuthorByline.tsx (also
 // used by the index/paginated routes) rather than a local copy.
 //
-// Tag list links to /blog?tag=slug (functional since pagination shipped,
-// tm-1788532452755). Related posts reuses the same PostCard grid as the
+// Tag list and the primary-tag pill above the title both link to
+// /blog?tag=slug (functional since pagination shipped, tm-1788532452755) —
+// there's no dedicated /blog/tag/[slug] archive page, deliberately (see
+// CLAUDE.md); the filtered index is the "tag page." Related posts reuses
+// the same PostCard grid as the
 // index (tm-1788535981352) rather than a bespoke layout, so it's the
 // narrow article column above, opening into the wider grid below — same
 // pattern Velocity B uses.
@@ -61,9 +64,12 @@ export default async function BlogPostPage({
           </Link>
         </p>
         {primaryTag && (
-          <span className="mb-3 inline-block rounded-full border border-blue-600 px-4 py-1 text-xs font-bold uppercase tracking-wider text-blue-600">
+          <Link
+            href={`/blog?tag=${primaryTag.slug}`}
+            className="mb-3 inline-block rounded-full border border-blue-600 px-4 py-1 text-xs font-bold uppercase tracking-wider text-blue-600 hover:bg-blue-600 hover:text-white"
+          >
             {primaryTag.name}
-          </span>
+          </Link>
         )}
         <h1 className="mb-2 text-3xl font-bold tracking-tight md:text-4xl">{post.title}</h1>
         <div className="mb-8 text-sm text-slate-500">
