@@ -13,8 +13,8 @@ import { BlogIndexContent } from "@/components/blog/BlogIndexContent";
 export default async function BlogIndexPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string }>;
+  searchParams: Promise<{ tag?: string; q?: string }>;
 }) {
-  const { tag } = await searchParams;
-  return <BlogIndexContent currentPage={1} tagSlug={tag} />;
+  const { tag, q } = await searchParams;
+  return <BlogIndexContent currentPage={1} tagSlug={tag} query={q} />;
 }

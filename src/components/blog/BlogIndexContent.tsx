@@ -22,6 +22,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getLocalPosts } from "@/lib/blog/local-content";
 import { getAllTags, getTagBySlug } from "@/lib/blog/local-tags";
+import { searchPosts } from "@/lib/blog/search";
 import { PostCard } from "@/components/blog/PostCard";
 import type { PostSummary, Tag } from "@/lib/storage/schema";
 
@@ -34,9 +35,11 @@ export function getUnfilteredBlogPageCount(): number {
 export function BlogIndexContent({
   currentPage,
   tagSlug,
+  query,
 }: {
   currentPage: number;
   tagSlug?: string;
+  query?: string;
 }) {
   const allPosts = getLocalPosts();
   const tags = getAllTags();
@@ -47,10 +50,19 @@ export function BlogIndexContent({
   }
 
   const activeTag: Tag | null = tagSlug ? getTagBySlug(tagSlug) : null;
-  const filteredPosts: PostSummary[] = activeTag
+  const tagFilteredPosts: PostSummary[] = activeTag
     ? allPosts.filter((p) => p.tags?.includes(activeTag.slug))
     : allPosts;
 
+  // Search runs on top of the tag filter, so "search within Sales posts"
+  // works without extra wiring — searchPosts() is a no-op passthrough when
+  // query is empty, so this is safe to call unconditionally.
+  const filteredPosts: PostSummary[] = searchPosts(tagFilteredPosts, query);
+
+  // A search/tag combo can validly produce zero results on a page number
+  // that was fine before either filter was applied — that's an empty
+  // result set to show, not a 404. Only the raw page-number bound (above)
+  // is a 404; an empty filtered page renders the "no posts" message below.
   const totalPages = Math.max(1, Math.ceil(filteredPosts.length / BLOG_PAGE_SIZE));
   const pageForSlice = Math.min(currentPage, totalPages);
   const pagePosts = filteredPosts.slice(
@@ -60,17 +72,45 @@ export function BlogIndexContent({
 
   function pageHref(page: number): string {
     const base = page <= 1 ? "/blog" : `/blog/page/${page}`;
-    return activeTag ? `${base}?tag=${activeTag.slug}` : base;
+    const params = new URLSearchParams();
+    if (activeTag) params.set("tag", activeTag.slug);
+    if (query?.trim()) params.set("q", query.trim());
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }
+
+  function tagHref(slug?: string): string {
+    const params = new URLSearchParams();
+    if (slug) params.set("tag", slug);
+    if (query?.trim()) params.set("q", query.trim());
+    const qs = params.toString();
+    return qs ? `/blog?${qs}` : "/blog";
   }
 
   return (
     <main className="mx-auto max-w-[1180px] px-6 py-12 md:px-12">
       <h1 className="mb-8 text-3xl font-bold tracking-tight">Blog</h1>
 
+      {/* Plain GET form — no client component needed. Submitting navigates
+          to /blog?q=...(&tag=...), the same server-rendered round trip tag
+          pills already use. Preserves the active tag via a hidden field so
+          "search within Sales posts" survives a fresh search submission. */}
+      <form action="/blog" method="get" className="mb-8">
+        {activeTag && <input type="hidden" name="tag" value={activeTag.slug} />}
+        <input
+          type="search"
+          name="q"
+          defaultValue={query ?? ""}
+          placeholder="Search posts…"
+          aria-label="Search posts"
+          className="w-full max-w-md rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-[15px] text-slate-800 placeholder:text-slate-400 focus:border-slate-800 focus:outline-none"
+        />
+      </form>
+
       {tags.length > 0 && (
         <div className="mb-12 flex flex-wrap gap-2.5">
           <Link
-            href="/blog"
+            href={tagHref(undefined)}
             className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
               !activeTag
                 ? "border-slate-800 bg-slate-800 text-white"
@@ -82,7 +122,7 @@ export function BlogIndexContent({
           {tags.map((tag) => (
             <Link
               key={tag.id}
-              href={`/blog?tag=${tag.slug}`}
+              href={tagHref(tag.slug)}
               className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
                 activeTag?.slug === tag.slug
                   ? "border-slate-800 bg-slate-800 text-white"
@@ -96,7 +136,9 @@ export function BlogIndexContent({
       )}
 
       {pagePosts.length === 0 ? (
-        <p className="text-slate-600">No posts found for this tag yet.</p>
+        <p className="text-slate-600">
+          {query?.trim() ? "No posts found for this search." : "No posts found for this tag yet."}
+        </p>
       ) : (
         <div className="grid grid-cols-1 gap-x-9 gap-y-11 md:grid-cols-3">
           {pagePosts.map((post, i) => (

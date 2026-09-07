@@ -15,10 +15,10 @@ export default async function BlogIndexPagedPage({
   searchParams,
 }: {
   params: Promise<{ pageNum: string }>;
-  searchParams: Promise<{ tag?: string }>;
+  searchParams: Promise<{ tag?: string; q?: string }>;
 }) {
   const { pageNum } = await params;
-  const { tag } = await searchParams;
+  const { tag, q } = await searchParams;
   const currentPage = parseInt(pageNum, 10) || 1;
-  return <BlogIndexContent currentPage={currentPage} tagSlug={tag} />;
+  return <BlogIndexContent currentPage={currentPage} tagSlug={tag} query={q} />;
 }
