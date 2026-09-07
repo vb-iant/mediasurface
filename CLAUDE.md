@@ -620,7 +620,19 @@ positive ruled out:
   subscribe is an explicitly separate tool decision, not blog/CMS scope
   (see `multi-site-admin-briefing.md`).
 
-## Status / next steps
+## Admin post-list search (2026-09-07)
+
+Resolved `tm-1786201478243` ("Add search to post list view") — its open scoping questions are answered by what got built:
+
+- **Server-side `?q=`**, same shape as `?page=` already used for pagination — confirmed by reading `src/app/admin/(protected)/posts/page.tsx` before building, not assumed.
+- **Searches the full per-site list**, not just the current page — `listPosts(siteId)` already loads every post's full frontmatter up front (per the existing cost note on this), so filtering it for search needs no new fetch.
+- **A new search resets to page 1** — the search `<form>` doesn't carry a `page` field, so submitting `?q=...` always lands on page 1 of the filtered set; `pageHref()` then carries `q` forward from there.
+
+**Deliberately a separate module from the public blog's search** — `src/lib/storage/search-posts.ts` (`searchAdminPosts()`), not a reuse of `src/lib/blog/search.ts`. The blog's search resolves tags/authors to display names via `getAllTags()`/`getAllAuthors()`, which read `mediasurface`'s own local content — correct for the public `/blog` reference implementation, but wrong for the admin, whose post list comes from `listPosts(siteId)` via the storage interface and can be showing Velocity B, Rockstar CMO, or any future site. Per-site tag/author name resolution isn't wired up site-agnostically (only Velocity B has a real site-config entry), so the admin search matches raw fields already present on `PostSummary` — title, excerpt, tag slugs, author slug(s) — rather than resolved display names. Same Fuse.js weighting rationale (title > excerpt > tags > author) carried over regardless.
+
+**Verified against real Velocity B content** (39 posts via `GITHUB_TOKEN`, not fixtures) using a locally-generated valid session token (same HMAC scheme as `src/lib/auth/session.ts`, local-only secret, never touching live credentials) to exercise the real password-gated route rather than stub around auth. Confirmed: unfiltered list (39 posts, page 1 of 2), a real search term matching an actual post title, a nonsense term producing the empty state, and pagination correctly preserving `q`.
+
+
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
 - [x] Storage interface built and proven read-only against
