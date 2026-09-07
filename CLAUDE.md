@@ -535,6 +535,91 @@ schema per the doc's spec but not yet present on existing posts.
 (e.g. `GITHUB_TOKEN_VELOCITY_B`) before falling back to `GITHUB_TOKEN` — so
 splitting into fine-grained per-repo PATs later needs no code changes.
 
+## Blog search (2026-09-07)
+
+Added search to the reference blog implementation using Fuse.js, on top of
+the audit-finding parity work below.
+
+**Server-side, not client-side — deliberate choice.** The obvious "modern"
+approach would be a client-side JSON search index shipped to the browser
+for live-as-you-type matching. Rejected in favor of the simpler option:
+`BlogIndexContent` was already a server component doing tag filtering
+entirely via `Link`s + `searchParams` (`?tag=slug`), with zero client JS.
+Search follows the exact same shape — a plain GET `<form>` submits to
+`/blog?q=...`, Fuse.js runs server-side over the same post list
+`getLocalPosts()` already loads for tag filtering, no index generation
+step, no client component, no bundle-size cost. Consistency with the
+existing pattern won out over the marginal UX gain of live-as-you-type on
+a blog this size.
+
+- `src/lib/blog/search.ts` — `searchPosts(posts, query)`. Self-contained
+  (only depends on schema types + `local-tags`/`local-authors`), same
+  "shared pattern, per-site copy" portability model as `local-content.ts`
+  and the OG config — this file gets copied into a site's repo on cutover,
+  not imported as a runtime package across repos.
+- Weighted fields: title (0.5) > excerpt (0.25) > tag names (0.15) >
+  author names (0.1), resolved to display names via `getAllTags()` /
+  `getAllAuthors()` before indexing, not raw slugs.
+- Search composes with tag filtering: `searchPosts()` runs on the
+  already-tag-filtered list, so `/blog?tag=sales&q=deal` searches within
+  the Sales tag rather than across all posts. `searchPosts()` is a no-op
+  passthrough when `query` is empty, so `BlogIndexContent` calls it
+  unconditionally rather than branching.
+- Tag pills and pagination links preserve `q` via `URLSearchParams`
+  (`tagHref()`/`pageHref()`); the search `<form>` carries the active tag
+  as a hidden field so re-searching doesn't drop it. `PostCard`'s own
+  primary-tag-pill links deliberately do NOT carry `q` — those represent
+  "view this tag" from a specific post, not part of the filter bar, and
+  predate this change.
+- Empty-state message distinguishes "no posts found for this tag yet"
+  (existing) from "no posts found for this search" (new) rather than one
+  generic message for both.
+- `fuse.js@^7.5.0` added as a dependency. One pre-existing unrelated
+  `nanoid` transitive-dep vulnerability flagged by `npm audit` — not
+  introduced by this change, not addressed here.
+
+**Verified**: `npx next build` clean, then `npx next start` + curl against
+real fixture content — a real search term, a nonsense term (empty state),
+and a combined tag+search query all confirmed against actual HTTP
+responses, not just a successful static build. Re-verified live against
+`mediasurface.app` post-deploy the same way.
+
+**Rollout**: built here first per the reference-implementation pattern.
+Velocity B (dozens of posts) and Rockstar CMO (confirmed <500 posts, once
+schema reconciliation is done) both fit comfortably within the size range
+this server-side approach handles well — see CTRL task `tm-1788808951018`
+for the full scale analysis (server-side Fuse.js assessed as fine up to
+~500-1000 posts; a size-aware fork wasn't needed for any site currently in
+scope).
+
+## Velocity B parity audit (2026-09-07)
+
+Ian caught a mismatch (an author box built on Velocity B that hadn't been
+ported to `mediasurface`) and asked for a fuller comparison. Cloned both
+repos and diffed `app/`, `components/`, `lib/` directly rather than
+relying on memory of what was built — two real gaps found, one false
+positive ruled out:
+
+- **Date formatting — real gap, unfixed.** Velocity B's `lib/blog.ts` has
+  `formatPostDate()` (`en-GB`, long month — "4 September 2026").
+  `mediasurface`'s `local-content.ts` has no equivalent; `post.date` is
+  rendered as the raw ISO frontmatter string. Logged as `tm-1788809131474`
+  (Low priority), not yet fixed.
+- **"Latest on Blog" / Featured Article module — backlogged, not a bug.**
+  Velocity B's `components/blog/LatestOnBlog.tsx` is a single-post
+  "Featured Article" widget for non-blog marketing pages (reuses the OG
+  image as a thumbnail). `mediasurface` has no non-blog pages to place it
+  on yet, so there's nothing to build it against. Logged as
+  `tm-1788809138392` (Low priority) for whenever that changes.
+- **`AuthorArchiveContent.tsx` — false positive, not a gap.** Velocity B
+  splits author-archive rendering into its own component; `mediasurface`
+  inlines the same logic directly in `app/blog/author/[slug]/page.tsx`.
+  Same behavior, different file organization — confirmed by reading both,
+  not assumed.
+- `NewsletterSignup.tsx` on Velocity B is correctly absent — newsletter/
+  subscribe is an explicitly separate tool decision, not blog/CMS scope
+  (see `multi-site-admin-briefing.md`).
+
 ## Status / next steps
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
