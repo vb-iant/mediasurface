@@ -10,7 +10,10 @@
 // of drafts is a different, separate feature inside the gated admin UI.
 //
 // Author byline uses the shared components/blog/AuthorByline.tsx (also
-// used by the index/paginated routes) rather than a local copy.
+// used by the index/paginated routes) rather than a local copy. An
+// author box (avatar, role, bio, LinkedIn) also sits at the bottom of
+// the article, above the tag list — components/blog/AuthorBox.tsx,
+// mirroring Velocity B's inline author-box block on this same route.
 //
 // Tag list and the primary-tag pill above the title both link to
 // /blog?tag=slug (functional since pagination shipped, tm-1788532452755) —
@@ -35,6 +38,7 @@ import {
 } from "@/lib/blog/local-content";
 import { getPrimaryTag, getResolvedTags } from "@/lib/blog/local-tags";
 import { AuthorByline } from "@/components/blog/AuthorByline";
+import { AuthorBox } from "@/components/blog/AuthorBox";
 import { PostCard } from "@/components/blog/PostCard";
 
 export function generateStaticParams() {
@@ -92,6 +96,10 @@ export default async function BlogPostPage({
             {post.body}
           </ReactMarkdown>
         </div>
+
+        <hr className="my-11 border-slate-200" />
+        <AuthorBox author={post.author} />
+
         {allTags.length > 0 && (
           <div className="mt-8 flex flex-wrap gap-2">
             {allTags.map((tag) => (
