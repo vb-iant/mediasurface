@@ -9,6 +9,7 @@ import {
   summarise,
   type Category,
   type Finding,
+  type LinkSource,
   type Severity,
 } from "@/lib/seo/findings";
 import { urlKey } from "@/lib/seo/urls";
@@ -77,6 +78,33 @@ function StatusBadge({ page }: { page: AuditPage }) {
 }
 
 const URL_PREVIEW = 25;
+const SOURCE_PREVIEW = 3;
+
+/** "on /page — “link text”" lines under a broken URL. */
+function SourceList({ sources, origin }: { sources: LinkSource[]; origin: string }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? sources : sources.slice(0, SOURCE_PREVIEW);
+  return (
+    <ul className={`mt-0.5 mb-1.5 space-y-0.5 border-l border-zinc-200 pl-3 text-xs dark:border-zinc-800 ${muted}`}>
+      {shown.map((src) => (
+        <li key={src.page} className="truncate">
+          on{" "}
+          <a href={src.page} target="_blank" rel="noreferrer noopener" className="text-zinc-600 underline decoration-zinc-300 underline-offset-2 dark:text-zinc-300 dark:decoration-zinc-700">
+            {displayPath(src.page, origin)}
+          </a>
+          {src.text && <span> — “{src.text}”</span>}
+        </li>
+      ))}
+      {sources.length > SOURCE_PREVIEW && (
+        <li>
+          <button type="button" onClick={() => setAll((v) => !v)} className="font-medium hover:text-zinc-900 dark:hover:text-zinc-50">
+            {all ? "Show fewer" : `+ ${sources.length - SOURCE_PREVIEW} more`}
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
 
 function FindingItem({ finding, origin }: { finding: Finding; origin: string }) {
   const [showAll, setShowAll] = useState(false);
@@ -105,14 +133,19 @@ function FindingItem({ finding, origin }: { finding: Finding; origin: string }) 
         {visible.length > 0 && (
           <ul className="mt-3 space-y-1 text-sm">
             {visible.map((u) => (
-              <li key={u} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                <a href={u} target="_blank" rel="noreferrer noopener" className="min-w-0 max-w-full truncate text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-700 dark:text-zinc-300 dark:decoration-zinc-700 dark:hover:decoration-zinc-300">
-                  {displayPath(u, origin)}
-                </a>
-                {finding.notes?.[u] && (
-                  <span className={`min-w-0 max-w-full truncate text-xs ${muted}`} title={finding.notes[u]}>
-                    {finding.notes[u]}
-                  </span>
+              <li key={u}>
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  <a href={u} target="_blank" rel="noreferrer noopener" className="min-w-0 max-w-full truncate text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-700 dark:text-zinc-300 dark:decoration-zinc-700 dark:hover:decoration-zinc-300">
+                    {displayPath(u, origin)}
+                  </a>
+                  {finding.notes?.[u] && (
+                    <span className={`min-w-0 max-w-full truncate text-xs ${muted}`} title={finding.notes[u]}>
+                      {finding.notes[u]}
+                    </span>
+                  )}
+                </div>
+                {finding.sources?.[u] && finding.sources[u].length > 0 && (
+                  <SourceList sources={finding.sources[u]} origin={origin} />
                 )}
               </li>
             ))}
@@ -489,7 +522,11 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatTile label="Pages crawled" value={summary.pagesCrawled} />
         <StatTile label="Loading fine" value={summary.okPages} />
-        <StatTile label="Failed to load" value={summary.brokenPages} tone={summary.brokenPages ? "bad" : undefined} />
+        <StatTile
+          label="Broken links"
+          value={audit.linkCheck?.status === "running" ? `${summary.brokenLinks}…` : summary.brokenLinks}
+          tone={summary.brokenLinks ? "bad" : undefined}
+        />
         <StatTile label="Redirected" value={summary.redirectedPages} tone={summary.redirectedPages ? "warn" : undefined} />
         <StatTile label="In sitemap" value={discovery.sitemap.found ? summary.sitemapUrls : "None"} tone={discovery.sitemap.found ? undefined : "warn"} />
         <StatTile label="Median response" value={summary.medianTimeMs === null ? "—" : `${summary.medianTimeMs} ms`} />
@@ -497,7 +534,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* Findings */}
-        <section className="lg:col-span-2">
+        <section className="min-w-0 lg:col-span-2">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Findings</h2>
             <div className={`flex gap-3 text-xs ${muted}`}>
@@ -531,7 +568,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
         </section>
 
         {/* Crawl setup */}
-        <section>
+        <section className="min-w-0">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Crawl setup</h2>
           <dl className={`mt-3 divide-y divide-zinc-100 text-sm dark:divide-zinc-900 ${card}`}>
             <div className="px-4 py-3">
@@ -556,6 +593,18 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
                 {discovery.sitemap.offSiteCount > 0 && (
                   <span className={`block text-xs ${muted}`}>{discovery.sitemap.offSiteCount} off-site URLs ignored</span>
                 )}
+              </dd>
+            </div>
+            <div className="px-4 py-3">
+              <dt className={`text-xs ${muted}`}>Links, files &amp; images checked</dt>
+              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">
+                {!audit.linkCheck || audit.linkCheck.status === "pending"
+                  ? "After the crawl"
+                  : audit.linkCheck.status === "skipped"
+                    ? "Skipped (crawl didn't finish)"
+                    : `${audit.linkCheck.results.length.toLocaleString("en-GB")} of ${audit.linkCheck.found.toLocaleString("en-GB")}${
+                        audit.linkCheck.status === "running" ? " so far" : audit.linkCheck.status === "cancelled" ? " (stopped early)" : ""
+                      }`}
               </dd>
             </div>
             <div className="px-4 py-3">

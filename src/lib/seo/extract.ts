@@ -9,16 +9,25 @@
 
 import "server-only";
 import * as cheerio from "cheerio";
-import { isSameSite } from "./urls";
+import { isSameSite, looksLikePage } from "./urls";
 import type { OnPageData } from "./types";
 
 const MAX_LINKS_PER_PAGE = 2000;
+const MAX_LINK_TEXT = 80;
 
 export interface ExtractedHtml {
   title: string | null;
   internalLinks: string[];
   externalLinkCount: number;
+  externalLinks: string[];
+  assetLinks: string[];
+  linkText: Record<string, string>;
   onPage: OnPageData;
+}
+
+function shortText(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > MAX_LINK_TEXT ? `${t.slice(0, MAX_LINK_TEXT - 1)}…` : t;
 }
 
 function clean(text: string | undefined | null): string | null {
@@ -55,25 +64,52 @@ export function extractHtml(
 
   const internal = new Set<string>();
   const external = new Set<string>();
+  const assets = new Set<string>();
+  const linkText: Record<string, string> = {};
+  const total = () => internal.size + external.size + assets.size;
+
+  const toAbsolute = (raw: string | undefined): string | null => {
+    const href = (raw ?? "").trim();
+    if (!href || href.startsWith("#")) return null;
+    if (/^(mailto|tel|javascript|data|sms|ftp|blob):/i.test(href)) return null;
+    try {
+      const resolved = new URL(href, base);
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return null;
+      resolved.hash = "";
+      return resolved.toString();
+    } catch {
+      return null;
+    }
+  };
 
   $("a[href]").each((_, el) => {
-    if (internal.size + external.size >= MAX_LINKS_PER_PAGE) return false;
-    const href = ($(el).attr("href") ?? "").trim();
-    if (!href || href.startsWith("#")) return;
-    if (/^(mailto|tel|javascript|data|sms|ftp):/i.test(href)) return;
-
-    let resolved: URL;
-    try {
-      resolved = new URL(href, base);
-    } catch {
-      return;
+    if (total() >= MAX_LINKS_PER_PAGE) return false;
+    const abs = toAbsolute($(el).attr("href"));
+    if (!abs) return;
+    if (!(abs in linkText)) {
+      const text =
+        shortText($(el).text()) ||
+        shortText($(el).attr("aria-label") ?? "") ||
+        shortText($(el).find("img[alt]").first().attr("alt") ?? "") ||
+        "(no link text)";
+      linkText[abs] = text;
     }
-    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
-    resolved.hash = "";
-    const abs = resolved.toString();
+    if (!isSameSite(abs, origin)) external.add(abs);
+    else if (looksLikePage(abs)) internal.add(abs);
+    else assets.add(abs); // PDFs, downloads, images linked directly
+  });
 
-    if (isSameSite(abs, origin)) internal.add(abs);
-    else external.add(abs);
+  // Same-site images. External image hosts (CDNs) aren't checked — the
+  // scope is this site's own files plus outbound <a> links.
+  $("img[src]").each((_, el) => {
+    if (total() >= MAX_LINKS_PER_PAGE) return false;
+    const abs = toAbsolute($(el).attr("src"));
+    if (!abs || !isSameSite(abs, origin)) return;
+    assets.add(abs);
+    if (!(abs in linkText)) {
+      const alt = shortText($(el).attr("alt") ?? "");
+      linkText[abs] = alt ? `Image: ${alt}` : "Image";
+    }
   });
 
   // meta name matching is case-insensitive in practice (Name="Description").
@@ -117,6 +153,9 @@ export function extractHtml(
     title,
     internalLinks: [...internal],
     externalLinkCount: external.size,
+    externalLinks: [...external],
+    assetLinks: [...assets],
+    linkText,
     onPage,
   };
 }

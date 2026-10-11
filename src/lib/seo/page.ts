@@ -13,13 +13,26 @@ function isHtmlType(contentType: string | null): boolean {
   return t.includes("text/html") || t.includes("application/xhtml+xml");
 }
 
+/** Statuses worth one quick retry: usually a busy server, not a dead page. */
+const TRANSIENT = new Set([500, 502, 503, 504]);
+
 export async function fetchPage(url: string, origin: string): Promise<FetchedPage> {
-  const raw = await safeFetch(url, { wantBody: isHtmlType });
+  let raw = await safeFetch(url, { wantBody: isHtmlType });
+  // Found on contentbloom.com, 2026-10-11: six pages returned 500 mid-crawl
+  // and loaded fine minutes later. One retry here; the crawler also
+  // rechecks anything still failing once the crawl ends.
+  if (TRANSIENT.has(raw.status) || raw.errorKind === "reset") {
+    await new Promise((r) => setTimeout(r, 1500));
+    raw = await safeFetch(url, { wantBody: isHtmlType });
+  }
   const isHtml = isHtmlType(raw.contentType);
 
   let title: string | null = null;
   let internalLinks: string[] = [];
   let externalLinkCount = 0;
+  let externalLinks: string[] = [];
+  let assetLinks: string[] = [];
+  let linkText: Record<string, string> = {};
   let onPage: OnPageData | null = null;
 
   if (isHtml && raw.body.length > 0) {
@@ -32,6 +45,9 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     title = extracted.title;
     internalLinks = extracted.internalLinks;
     externalLinkCount = extracted.externalLinkCount;
+    externalLinks = extracted.externalLinks;
+    assetLinks = extracted.assetLinks;
+    linkText = extracted.linkText;
     onPage = extracted.onPage;
   }
 
@@ -49,6 +65,9 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     title,
     internalLinks,
     externalLinkCount,
+    externalLinks,
+    assetLinks,
+    linkText,
     onPage,
   };
 }

@@ -37,8 +37,17 @@ export interface FetchedPage {
   title: string | null;
   /** Internal links found on the page (absolute, fragment-stripped). */
   internalLinks: string[];
-  /** Count of external links found (checked in phase 3). */
+  /** Count of external links found. */
   externalLinkCount: number;
+  /** External <a href> targets (phase 3 checks these, status only). */
+  externalLinks: string[];
+  /**
+   * Same-site files and images: <a href> to non-page URLs (PDFs, downloads)
+   * and <img src>. Not crawled as pages; phase 3 checks they load.
+   */
+  assetLinks: string[];
+  /** URL → its link text (first occurrence; image alt or "Image" for <img>). */
+  linkText: Record<string, string>;
   /** On-page SEO data (phase 2). Null for non-HTML or failed responses. */
   onPage: OnPageData | null;
 }
@@ -131,7 +140,35 @@ export interface AuditResult {
   pages: AuditPage[];
   /** Internal URLs we found but didn't fetch because robots.txt disallows them. */
   blockedByRobots: string[];
+  /** Phase 3: status checks on external links and same-site files/images. */
+  linkCheck: LinkCheckState;
 }
+
+export type LinkVerdict = "ok" | "broken" | "unverified";
+
+/** Result of a status-only check on one link target. */
+export interface LinkCheckResult {
+  url: string;
+  kind: "external" | "asset";
+  /** Final HTTP status, or 0 if there was no response. */
+  status: number;
+  finalUrl: string;
+  verdict: LinkVerdict;
+  /** Short human reason, e.g. "HTTP 404", "Domain not found", "Blocked (403)". */
+  reason: string;
+}
+
+export interface LinkCheckState {
+  status: "pending" | "running" | "complete" | "cancelled" | "skipped";
+  /** Unique targets found across all crawled pages. */
+  found: number;
+  /** Targets actually checked (≤ MAX_LINK_CHECKS). */
+  total: number;
+  results: LinkCheckResult[];
+}
+
+/** Ceiling on status checks per audit (files/images first, then external links by how many pages use them). */
+export const MAX_LINK_CHECKS = 3000;
 
 /** Default page cap for an audit. */
 export const PAGE_LIMIT = 500;

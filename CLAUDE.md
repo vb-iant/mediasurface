@@ -827,8 +827,11 @@ Expected results (default 500 cap, as of 2026-10-11 — blog posts may be
 added, so small count drift on page totals is normal; the specific
 findings below shouldn't change):
 - ~74 pages crawled, crawl finishes under the cap.
-- Error: `/free-b2b-growth-guide` fails to load (404), linked from
-  `/blog/what-actually-works-when-growth-stalls`.
+- Error (Links → "Broken links"): `/free-b2b-growth-guide` (HTTP 404),
+  linked from `/blog/what-actually-works-when-growth-stalls` with the link
+  text "practical guide". Exactly 1 broken link; 0 broken external links.
+- Notice ("Links we couldn't verify", 7): 4 LinkedIn profiles (999),
+  McKinsey (503), 6sense.com and moz.com (403). ~35 link targets checked.
 - Error: canonical points to another domain on `/blog/page/2..5` (→
   `velocity-b-virid.vercel.app`, which 308s back to www).
 - Every page's `og:image` is on `velocity-b-virid.vercel.app` (visible in
@@ -841,6 +844,70 @@ findings below shouldn't change):
 - Warnings: 8 titles over 60 chars, ~20 descriptions over 160,
   author-archive pages 2/3 sharing titles/descriptions with page 1.
 - Notice: `/blog/whats-your-product-being-hired-to-do` has two H1s.
+
+### Phase 3: broken links (2026-10-11)
+
+**Naming (Ian):** the headline finding is **"Broken links"**, not "Pages
+that failed to load" — what someone fixes is the link. A new **Links**
+category leads the report: "Broken links" (error — this site's own pages,
+files and images), "Broken external links" (warning), "Links we couldn't
+verify" (notice), plus notices if checks were capped or stopped. Every
+URL lists the pages linking to it with the link text (up to 20; the note
+gives the full count). Summary tile renamed "Broken links" (own + external).
+
+**Scope (Ian):** external links are status-only; **same-site files and
+images are checked too** — `<a href>` to non-page URLs (PDFs, downloads)
+and `<img src>` on the site's own domain. External image hosts/CDNs aren't
+checked. Extraction now records `externalLinks`, `assetLinks` and
+`linkText` (URL → first link text / image alt) per page.
+
+**How:** after the page crawl (and only if it completed), the browser
+sends unique targets to `POST /api/seo/check` in batches of 40 — files and
+images first, then external links by how many pages use them, capped at
+`MAX_LINK_CHECKS` = 3,000. Server side (`src/lib/seo/link-check.ts`):
+12 checks in flight, **≤2 per host**, HEAD first then GET (bodies never
+read) because many servers answer HEAD wrongly, 8s timeout. No new check
+starts after 25s; unstarted items return null and the browser re-queues
+them, so a slow host can't push the route past its 60s `maxDuration`.
+This route accepts off-site URLs (it checks outbound links) but only ever
+returns status + verdict, and every hop goes through the SSRF guard.
+Results live in `audit.linkCheck` (part of `AuditResult`).
+
+**Verdicts — "broken" must mean broken (client reports):**
+- broken: 404/410, domain not found, connection refused, certificate
+  errors, redirect loops, links to private addresses (e.g. a leftover
+  `localhost` image), 500/502/504 after a retry.
+- unverified: 401, 403, 429, **503**, **999**, Cloudflare 52x, other 4xx,
+  timeouts, resets.
+- Two false positives caught in testing and fixed: LinkedIn's 999 was
+  first classed as a server error (the ≥500 rule ran first — order now
+  matters and is commented), and McKinsey's 503 is bot protection (its
+  homepage resets the connection for any automated client).
+
+**Transient page errors:** contentbloom.com returned 500 on 6 pages
+mid-crawl that loaded fine minutes later — they'd have been reported as
+broken links. Now `fetchPage` retries 500/502/503/504 and resets once
+after 1.5s, and the crawler rechecks anything still failing (5xx,
+timeout, reset) after a 3s pause once the crawl ends. A page is only
+reported broken if it fails all of that. Rechecked pages' links count for
+link checks and sitemap comparisons but aren't crawled further.
+
+**Verified** (local production build; flagged links hand-checked):
+- velocity-b.com: 35 targets, 13s total; 1 broken link (the known 404,
+  with source + link text), 7 unverified, 0 broken external.
+- contentbloom.com (817 pages, 2,181 targets, ~5 min total, ~3 of it link
+  checks): 2 broken links (service URLs → 404 blog post); 55 broken
+  external links incl. old staging/preview domains
+  (`staging.contentbloom.com`, `contentbloom-com.preview-domain.com`,
+  `third.contentbloom.com`), a `localhost` image, dead Sitecore/HubSpot
+  pages and comment-spam links; 148 unverified (Instagram 429 on 410
+  pages, LinkedIn, Gartner, McKinsey…). 7 of 8 sampled 404s confirmed with
+  a browser UA (CDC blocks browser-UA curl, couldn't confirm); dead
+  domains confirmed NXDOMAIN via Google public DNS (this sandbox's own
+  resolver blocks some domains, e.g. localtest.me, so don't trust local
+  DNS failures alone).
+- UI: light/dark, 1280/390px, no console errors. Fixed a phone-width
+  overflow (grid columns needed `min-w-0` so long URLs truncate).
 
 
 

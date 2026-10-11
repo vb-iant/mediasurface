@@ -5,14 +5,20 @@
 
 export type Severity = "error" | "warning" | "info";
 
-/** Groups findings in the report. */
-export type Category = "status" | "sitemap" | "onpage";
+/** Groups findings in the report (in this order). */
+export type Category = "links" | "status" | "sitemap" | "onpage";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
+  links: "Links",
   status: "Status & redirects",
   sitemap: "Sitemap & robots.txt",
   onpage: "On-page SEO",
 };
+
+export interface LinkSource {
+  page: string;
+  text: string;
+}
 
 export interface Finding {
   id: string;
@@ -23,6 +29,8 @@ export interface Finding {
   urls: string[];
   /** Optional short note per URL, shown beside it (e.g. "72 characters"). */
   notes?: Record<string, string>;
+  /** Pages that link to each URL, with the link text (capped per URL). */
+  sources?: Record<string, LinkSource[]>;
   /** Set when the result can't be fully trusted (e.g. page limit reached). */
   caveat?: string;
 }

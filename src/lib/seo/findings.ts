@@ -7,9 +7,10 @@
 import { isSameSite, urlKey } from "./urls";
 import type { AuditPage, AuditResult } from "./types";
 import { isNoindex, onPageFindings } from "./checks/on-page";
+import { linkFindings } from "./checks/links";
 import type { Category, Finding, Severity } from "./checks/types";
 
-export type { Category, Finding, Severity } from "./checks/types";
+export type { Category, Finding, LinkSource, Severity } from "./checks/types";
 export { CATEGORY_LABELS } from "./checks/types";
 
 export function isOnSite(page: AuditPage, origin: string): boolean {
@@ -30,26 +31,8 @@ export function computeFindings(audit: AuditResult): Finding[] {
     ? `The crawl stopped at the ${audit.pageLimit.toLocaleString("en-GB")}-page limit, so some links weren't followed. Treat this list as provisional.`
     : "The crawl didn't finish, so some links weren't followed. Treat this list as provisional.";
 
-  const broken = pages.filter(isBrokenPage);
-  if (broken.length > 0) {
-    findings.push({
-      id: "broken-pages",
-      category: "status",
-      title: "Pages that failed to load",
-      severity: "error",
-      description: "These internal URLs returned an error status (4xx/5xx) or didn't respond at all.",
-      urls: broken.map((p) => p.url),
-      notes: Object.fromEntries(
-        broken.map((p) => {
-          const result = p.status ? `HTTP ${p.status}` : p.error ?? "No response";
-          const via = p.redirectChain.length
-            ? `Redirects to ${p.finalUrl.replace(new URL(origin).origin, "") || "/"}, which returns `
-            : "";
-          return [p.url, via ? `${via}${result}` : result];
-        })
-      ),
-    });
-  }
+  // Broken internal pages/files are reported by linkFindings ("Broken links").
+  findings.push(...linkFindings(audit));
 
   const offsite = pages.filter((p) => !isOnSite(p, origin));
   if (offsite.length > 0) {
@@ -242,7 +225,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   findings.push(...onPageFindings(audit));
 
   const severityOrder: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-  const categoryOrder: Record<Category, number> = { status: 0, sitemap: 1, onpage: 2 };
+  const categoryOrder: Record<Category, number> = { links: 0, status: 1, sitemap: 2, onpage: 3 };
   return findings.sort(
     (a, b) =>
       categoryOrder[a.category] - categoryOrder[b.category] ||
@@ -259,6 +242,10 @@ export function summarise(audit: AuditResult, findings: Finding[]) {
     pagesCrawled: pages.length,
     okPages: ok.length,
     brokenPages: pages.filter(isBrokenPage).length,
+    /** Broken links on this site (pages, files, images) + broken external links. */
+    brokenLinks: findings
+      .filter((f) => f.id === "broken-links" || f.id === "broken-external")
+      .reduce((n, f) => n + f.urls.length, 0),
     redirectedPages: pages.filter((p) => p.redirectChain.length > 0).length,
     sitemapUrls: audit.discovery.sitemap.urls.length,
     medianTimeMs: times.length ? times[Math.floor(times.length / 2)] : null,

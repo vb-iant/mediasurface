@@ -3,7 +3,8 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { runCrawl, crawlPacing } from "@/lib/seo/crawler";
 import { normaliseInputUrl } from "@/lib/seo/urls";
-import type { AuditResult, DiscoveryResult, FetchedPage } from "@/lib/seo/types";
+import type { AuditResult, DiscoveryResult, FetchedPage, LinkCheckResult } from "@/lib/seo/types";
+import type { LinkCheckItem } from "@/lib/seo/crawler";
 import { ESTIMATED_PAGES_PER_SECOND, PAGE_LIMIT, PAGE_LIMIT_OPTIONS } from "@/lib/seo/types";
 import { AuditReport } from "./report";
 
@@ -107,11 +108,20 @@ export function SeoAudit() {
       const data = await postJson<{ pages: FetchedPage[] }>("/api/seo/fetch", { origin, urls }, controller.signal);
       return data.pages;
     };
+    const checkBatch = async (items: LinkCheckItem[]) => {
+      const data = await postJson<{ results: (LinkCheckResult | null)[] }>(
+        "/api/seo/check",
+        { items },
+        controller.signal
+      );
+      return data.results;
+    };
 
     const result = await runCrawl({
       requestedUrl: url,
       discovery,
       fetchBatch,
+      checkBatch,
       pageLimit,
       signal: controller.signal,
       onProgress: (snapshot, q) => {
@@ -131,7 +141,14 @@ export function SeoAudit() {
 
   const fetched = audit?.pages.length ?? 0;
   const expected = Math.min(activeLimit, fetched + queued);
-  const pct = expected > 0 ? Math.round((fetched / expected) * 100) : 0;
+  const linkCheck = audit?.linkCheck;
+  const checkingLinks = running && linkCheck?.status === "running";
+  const checked = linkCheck?.results.length ?? 0;
+  const pct = checkingLinks
+    ? Math.round((checked / Math.max(1, linkCheck!.total)) * 100)
+    : expected > 0
+      ? Math.round((fetched / expected) * 100)
+      : 0;
 
   return (
     <div className="mt-6">
@@ -188,7 +205,7 @@ export function SeoAudit() {
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
           A full {pageLimit.toLocaleString("en-GB")}-page audit takes {estimateDuration(pageLimit)}
           {pageLimit > PAGE_LIMIT ? " — keep this tab open until it finishes, results aren't saved." : "."}{" "}
-          Smaller sites finish sooner.
+          Smaller sites finish sooner. Checking external links, files and images runs at the end and can add a few minutes on link-heavy sites.
         </p>
       )}
 
@@ -202,9 +219,18 @@ export function SeoAudit() {
         <div className="mt-6 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="flex items-baseline justify-between text-sm">
             <span className="font-medium text-zinc-900 dark:text-zinc-50">
-              {phase === "discovering" ? "Reading robots.txt and sitemaps…" : "Crawling pages…"}
+              {phase === "discovering"
+                ? "Reading robots.txt and sitemaps…"
+                : checkingLinks
+                  ? "Checking links, files and images…"
+                  : "Crawling pages…"}
             </span>
-            {phase === "crawling" && (
+            {phase === "crawling" && checkingLinks && (
+              <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+                {checked.toLocaleString("en-GB")} of {linkCheck!.total.toLocaleString("en-GB")} checked · {fetched} pages crawled
+              </span>
+            )}
+            {phase === "crawling" && !checkingLinks && (
               <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
                 {fetched} fetched · {queued} queued · limit {activeLimit.toLocaleString("en-GB")}
               </span>

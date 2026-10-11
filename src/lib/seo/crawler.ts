@@ -14,10 +14,17 @@
 
 import { isAllowedByRobots } from "./robots";
 import { isSameSite, looksLikePage, urlKey } from "./urls";
-import type { AuditPage, AuditResult, DiscoveryResult, FetchedPage } from "./types";
-import { MAX_PAGE_LIMIT, PAGE_LIMIT } from "./types";
+import type { AuditPage, AuditResult, DiscoveryResult, FetchedPage, LinkCheckResult } from "./types";
+import { MAX_LINK_CHECKS, MAX_PAGE_LIMIT, PAGE_LIMIT } from "./types";
 
 export type FetchBatch = (origin: string, urls: string[]) => Promise<FetchedPage[]>;
+
+export interface LinkCheckItem {
+  url: string;
+  kind: LinkCheckResult["kind"];
+}
+/** Status-checks a batch; null = not started this time (re-queued). */
+export type CheckBatch = (items: LinkCheckItem[]) => Promise<(LinkCheckResult | null)[]>;
 
 interface QueueItem {
   url: string;
@@ -28,6 +35,8 @@ export interface CrawlOptions {
   requestedUrl: string;
   discovery: DiscoveryResult;
   fetchBatch: FetchBatch;
+  /** Phase 3 link checks. Omit to skip them (e.g. in tests). */
+  checkBatch?: CheckBatch;
   signal: AbortSignal;
   onProgress: (audit: AuditResult, queued: number) => void;
   pageLimit?: number;
@@ -35,6 +44,8 @@ export interface CrawlOptions {
 
 const DEFAULT_BATCH = 10;
 const DEFAULT_DELAY_MS = 300;
+const CHECK_BATCH = 40;
+const CHECK_DELAY_MS = 200;
 /** Honour a site's Crawl-delay, but never wait more than this between requests. */
 const MAX_CRAWL_DELAY_S = 10;
 
@@ -58,7 +69,7 @@ export function crawlPacing(discovery: DiscoveryResult): { batchSize: number; de
 }
 
 export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
-  const { requestedUrl, discovery, fetchBatch, signal, onProgress } = options;
+  const { requestedUrl, discovery, fetchBatch, checkBatch, signal, onProgress } = options;
   const pageLimit = Math.min(Math.max(1, Math.floor(options.pageLimit ?? PAGE_LIMIT)), MAX_PAGE_LIMIT);
   const { origin, robots } = discovery;
   const { batchSize, delayMs } = crawlPacing(discovery);
@@ -83,6 +94,7 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
     capReached: false,
     pages,
     blockedByRobots: blockedUrls,
+    linkCheck: { status: "pending", found: 0, total: 0, results: [] },
   };
 
   function enqueue(url: string, depth: number | null): void {
@@ -120,7 +132,12 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
     for (const page of pages) {
       page.inlinkCount = inlinks.get(urlKey(page.finalUrl))?.size ?? inlinks.get(urlKey(page.url))?.size ?? 0;
     }
-    return { ...audit, pages: pages.slice(), blockedByRobots: blockedUrls.slice() };
+    return {
+      ...audit,
+      pages: pages.slice(),
+      blockedByRobots: blockedUrls.slice(),
+      linkCheck: { ...audit.linkCheck, results: audit.linkCheck.results.slice() },
+    };
   }
 
   enqueue(discovery.startUrl, 0);
@@ -164,8 +181,13 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
           inSitemap: sitemapKeys.has(key) || (finalOnSite && sitemapKeys.has(finalKey)),
           inlinkCount: 0,
         };
-        // Links are only meaningful for crawl purposes on pages that are part of this site.
-        if (!finalOnSite) page.internalLinks = [];
+        // Links on a page that redirected to another site belong to that site.
+        if (!finalOnSite) {
+          page.internalLinks = [];
+          page.externalLinks = [];
+          page.assetLinks = [];
+          page.linkText = {};
+        }
         pages.push(page);
 
         if (!finalOnSite || !result.isHtml || result.status >= 400) return;
@@ -193,6 +215,134 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
     audit.error = err instanceof Error ? err.message : String(err);
   }
 
+  if (audit.status === "complete") {
+    await recheckFailures(audit, pages, origin, fetchBatch, signal, () => onProgress(snapshot(), 0));
+    if (signal.aborted) audit.status = "cancelled";
+  }
+
+  if (audit.status === "complete" && checkBatch) {
+    await runLinkChecks(audit, pages, checkBatch, signal, () =>
+      onProgress(snapshot(), 0)
+    );
+  } else {
+    audit.linkCheck.status = "skipped";
+  }
+
   audit.finishedAt = new Date().toISOString();
   return snapshot();
+}
+
+/**
+ * Give pages that failed with a server error, reset or timeout one more try
+ * after a pause, once the crawl's load on the site has stopped. A page is
+ * only reported broken if it fails here too (it has already had a quick
+ * server-side retry). If a recheck succeeds, its links count for link
+ * checks and sitemap comparisons, but aren't crawled further — the crawl
+ * is over by then.
+ */
+async function recheckFailures(
+  audit: AuditResult,
+  pages: AuditPage[],
+  origin: string,
+  fetchBatch: FetchBatch,
+  signal: AbortSignal,
+  progress: () => void
+): Promise<void> {
+  const retryable = (p: AuditPage) =>
+    p.status >= 500 || (p.status === 0 && /timed out|reset/i.test(p.error ?? ""));
+  const failed = pages.map((p, i) => ({ p, i })).filter(({ p }) => retryable(p));
+  if (failed.length === 0) return;
+
+  await sleep(3000, signal);
+  for (let start = 0; start < failed.length && !signal.aborted; start += DEFAULT_BATCH) {
+    const chunk = failed.slice(start, start + DEFAULT_BATCH);
+    let results: FetchedPage[];
+    try {
+      results = await fetchBatch(origin, chunk.map(({ p }) => p.url));
+    } catch {
+      return; // keep the original results; nothing worse than before
+    }
+    results.forEach((r, k) => {
+      const { p, i } = chunk[k];
+      if (retryable({ ...p, ...r } as AuditPage)) return;
+      pages[i] = { ...r, depth: p.depth, inSitemap: p.inSitemap, inlinkCount: p.inlinkCount };
+    });
+    progress();
+    await sleep(DEFAULT_DELAY_MS, signal);
+  }
+}
+
+/**
+ * Phase 3: status-check every unique external link and same-site
+ * file/image found on the crawled pages. Files/images go first (they're
+ * the site's own), then external links by how many pages use them, up to
+ * MAX_LINK_CHECKS. Mutates audit.linkCheck as it goes.
+ */
+async function runLinkChecks(
+  audit: AuditResult,
+  pages: AuditPage[],
+  checkBatch: CheckBatch,
+  signal: AbortSignal,
+  progress: () => void
+): Promise<void> {
+  const refs = new Map<string, { kind: LinkCheckItem["kind"]; count: number }>();
+  for (const p of pages) {
+    if (p.status >= 400 || !p.isHtml) continue;
+    for (const url of p.assetLinks) {
+      const r = refs.get(url);
+      if (r) r.count++;
+      else refs.set(url, { kind: "asset", count: 1 });
+    }
+    for (const url of p.externalLinks) {
+      const r = refs.get(url);
+      if (r) r.count++;
+      else refs.set(url, { kind: "external", count: 1 });
+    }
+  }
+  const ordered = [...refs]
+    .sort(
+      ([, a], [, b]) =>
+        (a.kind === b.kind ? 0 : a.kind === "asset" ? -1 : 1) || b.count - a.count
+    )
+    .map(([url, { kind }]) => ({ url, kind }));
+
+  const state = audit.linkCheck;
+  state.found = ordered.length;
+  const queue: LinkCheckItem[] = ordered.slice(0, MAX_LINK_CHECKS);
+  state.total = queue.length;
+  state.status = queue.length ? "running" : "complete";
+  progress();
+
+  let stalls = 0;
+  while (queue.length > 0 && !signal.aborted) {
+    const batch = queue.splice(0, CHECK_BATCH);
+    let results: (LinkCheckResult | null)[];
+    try {
+      results = await checkBatch(batch);
+    } catch (err) {
+      if (signal.aborted) break;
+      await sleep(1500, signal);
+      if (signal.aborted) break;
+      try {
+        results = await checkBatch(batch);
+      } catch (err2) {
+        state.status = "cancelled";
+        audit.error = `Link checking stopped early: ${err2 instanceof Error ? err2.message : String(err ?? err2)}`;
+        return;
+      }
+    }
+    const notStarted = batch.filter((_, i) => !results[i]);
+    for (const r of results) if (r) state.results.push(r);
+    // Re-queue anything the server didn't get to (its time budget ran out).
+    queue.unshift(...notStarted);
+    stalls = notStarted.length === batch.length ? stalls + 1 : 0;
+    if (stalls >= 3) {
+      state.status = "cancelled";
+      audit.error = "Link checking stopped early: the checker kept running out of time.";
+      return;
+    }
+    progress();
+    if (queue.length > 0) await sleep(CHECK_DELAY_MS, signal);
+  }
+  state.status = signal.aborted ? "cancelled" : "complete";
 }

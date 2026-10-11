@@ -116,7 +116,11 @@ export interface RawFetchResult {
   body: Buffer;
   truncated: boolean;
   error: string | null;
+  /** Category of `error`, for callers that classify failures (link checks). */
+  errorKind: FetchErrorKind | null;
 }
+
+export type FetchErrorKind = "dns" | "refused" | "timeout" | "tls" | "reset" | "guard" | "invalid" | "redirects" | "other";
 
 export interface FetchOptions {
   /** Max bytes to read from the final response body. */
@@ -129,29 +133,42 @@ export interface FetchOptions {
    */
   wantBody?: (contentType: string | null) => boolean;
   accept?: string;
+  /** HEAD for status-only link checks; GET (default) otherwise. */
+  method?: "GET" | "HEAD";
 }
 
 const MAX_REDIRECTS = 10;
 
-function describeError(err: unknown): string {
+const TLS_CODES = new Set([
+  "CERT_HAS_EXPIRED",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+function describeError(err: unknown): { message: string; kind: FetchErrorKind } {
   if (err instanceof Error) {
     const cause = (err as Error & { cause?: unknown }).cause;
-    if (cause instanceof BlockedAddressError) return cause.message;
-    if (err instanceof BlockedAddressError) return err.message;
-    if (err.name === "TimeoutError" || err.name === "AbortError") return "Timed out";
+    if (cause instanceof BlockedAddressError) return { message: cause.message, kind: "guard" };
+    if (err instanceof BlockedAddressError) return { message: err.message, kind: "guard" };
+    if (err.name === "TimeoutError" || err.name === "AbortError") return { message: "Timed out", kind: "timeout" };
     if (cause instanceof Error) {
       const code = (cause as NodeJS.ErrnoException).code;
-      if (code === "ENOTFOUND") return "DNS lookup failed (domain not found)";
-      if (code === "ECONNREFUSED") return "Connection refused";
-      if (code === "ECONNRESET") return "Connection reset";
-      if (code && code.startsWith("ERR_TLS") || code === "CERT_HAS_EXPIRED" || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
-        return `TLS/certificate error (${code})`;
+      if (code === "ENOTFOUND") return { message: "DNS lookup failed (domain not found)", kind: "dns" };
+      if (code === "ECONNREFUSED") return { message: "Connection refused", kind: "refused" };
+      if (code === "ECONNRESET") return { message: "Connection reset", kind: "reset" };
+      if (code === "UND_ERR_CONNECT_TIMEOUT" || code === "UND_ERR_HEADERS_TIMEOUT" || code === "ETIMEDOUT") {
+        return { message: "Timed out", kind: "timeout" };
       }
-      return cause.message || err.message;
+      if ((code && code.startsWith("ERR_TLS")) || (code && TLS_CODES.has(code))) {
+        return { message: `TLS/certificate error (${code})`, kind: "tls" };
+      }
+      return { message: cause.message || err.message, kind: "other" };
     }
-    return err.message;
+    return { message: err.message, kind: "other" };
   }
-  return String(err);
+  return { message: String(err), kind: "other" };
 }
 
 export async function safeFetch(url: string, options: FetchOptions = {}): Promise<RawFetchResult> {
@@ -160,6 +177,7 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
     timeoutMs = 15_000,
     wantBody = () => true,
     accept = "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+    method = "GET",
   } = options;
 
   const started = Date.now();
@@ -167,7 +185,7 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
   const signal = AbortSignal.timeout(timeoutMs);
   let current = url;
 
-  const fail = (error: string, status = 0): RawFetchResult => ({
+  const fail = (error: string, kind: FetchErrorKind, status = 0): RawFetchResult => ({
     url,
     finalUrl: current,
     status,
@@ -178,6 +196,7 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
     body: Buffer.alloc(0),
     truncated: false,
     error,
+    errorKind: kind,
   });
 
   try {
@@ -186,19 +205,19 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
       try {
         parsed = new URL(current);
       } catch {
-        return fail(`Invalid URL: ${current}`);
+        return fail(`Invalid URL: ${current}`, "invalid");
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return fail(`Refused non-HTTP URL: ${parsed.protocol}`);
+        return fail(`Refused non-HTTP URL: ${parsed.protocol}`, "invalid");
       }
       // IP literals never go through DNS, so the lookup guard won't see them.
       const literal = parsed.hostname.replace(/^\[|\]$/g, "");
       if (isIP(literal) && isBlockedAddress(literal)) {
-        return fail(new BlockedAddressError(parsed.hostname).message);
+        return fail(new BlockedAddressError(parsed.hostname).message, "guard");
       }
 
       const res = await undiciFetch(current, {
-        method: "GET",
+        method,
         redirect: "manual",
         dispatcher: agent,
         signal,
@@ -254,10 +273,12 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
         body,
         truncated,
         error: null,
+        errorKind: null,
       };
     }
-    return fail(`Too many redirects (more than ${MAX_REDIRECTS})`);
+    return fail(`Too many redirects (more than ${MAX_REDIRECTS})`, "redirects");
   } catch (err) {
-    return fail(describeError(err));
+    const { message, kind } = describeError(err);
+    return fail(message, kind);
   }
 }
