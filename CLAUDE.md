@@ -813,6 +813,35 @@ against the live pages):
   metadata, correctly flagged, not fixed here.
 - Findings recompute: 15ms at 817 pages.
 
+### Known-answer test site: velocity-b.com (decided 2026-10-11)
+
+Ian chose to **leave Velocity B's SEO errors unfixed on purpose**, so the
+tool has a real site with known answers to regression-test against. Don't
+fix them as a side task, and don't "tidy" velocity-b to make an audit look
+cleaner. The four fixes are logged on the VB Website board, titled
+`[ON HOLD — SEO test data]` (`tm-1791741964502`, `tm-1791741967479`,
+`tm-1791741972787`, `tm-1791741979657`). When they're eventually fixed,
+replace this baseline.
+
+Expected results (default 500 cap, as of 2026-10-11 — blog posts may be
+added, so small count drift on page totals is normal; the specific
+findings below shouldn't change):
+- ~74 pages crawled, crawl finishes under the cap.
+- Error: `/free-b2b-growth-guide` fails to load (404), linked from
+  `/blog/what-actually-works-when-growth-stalls`.
+- Error: canonical points to another domain on `/blog/page/2..5` (→
+  `velocity-b-virid.vercel.app`, which 308s back to www).
+- Every page's `og:image` is on `velocity-b-virid.vercel.app` (visible in
+  row details; no dedicated check for this).
+- Warning: all 54 sitemap URLs use the apex host; site serves from www.
+- Warning: `/contact-us` in the sitemap redirects (→ `/contact`), and is
+  linked from 4 posts (notice: internal links pointing at redirects).
+- Warning: `/meet-ian` is an orphan (in sitemap, not linked).
+- Warning: author archives missing from the sitemap.
+- Warnings: 8 titles over 60 chars, ~20 descriptions over 160,
+  author-archive pages 2/3 sharing titles/descriptions with page 1.
+- Notice: `/blog/whats-your-product-being-hired-to-do` has two H1s.
+
 
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
