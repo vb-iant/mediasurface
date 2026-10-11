@@ -3,10 +3,8 @@
 import { Fragment, useMemo, useState } from "react";
 import {
   CATEGORY_LABELS,
-  computeFindings,
   isBrokenPage,
   isOnSite,
-  summarise,
   type Category,
   type Finding,
   type LinkSource,
@@ -34,8 +32,8 @@ const SEVERITY_STYLE: Record<Severity, { chip: string; label: string; dot: strin
   },
 };
 
-const card = "rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
-const muted = "text-zinc-500 dark:text-zinc-400";
+export const card = "rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
+export const muted = "text-zinc-500 dark:text-zinc-400";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -43,13 +41,13 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatDuration(startIso: string, endIso: string | null): string {
+export function formatDuration(startIso: string, endIso: string | null): string {
   const ms = (endIso ? Date.parse(endIso) : Date.now()) - Date.parse(startIso);
   const s = Math.max(0, Math.round(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-function displayPath(url: string, origin: string): string {
+export function displayPath(url: string, origin: string): string {
   try {
     const u = new URL(url);
     if (u.origin === origin) return `${u.pathname}${u.search}` || "/";
@@ -59,7 +57,7 @@ function displayPath(url: string, origin: string): string {
   }
 }
 
-function StatTile({ label, value, tone }: { label: string; value: string | number; tone?: "bad" | "warn" }) {
+export function StatTile({ label, value, tone }: { label: string; value: string | number; tone?: "bad" | "warn" }) {
   const toneClass =
     tone === "bad" ? "text-red-600 dark:text-red-400" : tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-zinc-900 dark:text-zinc-50";
   return (
@@ -272,7 +270,7 @@ function PageDetails({ page, issues }: { page: AuditPage; issues: PageIssue[] })
   );
 }
 
-function Inventory({ audit, findings }: { audit: AuditResult; findings: Finding[] }) {
+export function Inventory({ audit, findings }: { audit: AuditResult; findings: Finding[] }) {
   const { origin } = audit.discovery;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -496,7 +494,7 @@ function Inventory({ audit, findings }: { audit: AuditResult; findings: Finding[
   );
 }
 
-function Chip({ ok, children }: { ok: boolean | null; children: React.ReactNode }) {
+export function Chip({ ok, children }: { ok: boolean | null; children: React.ReactNode }) {
   const cls =
     ok === null
       ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
@@ -507,7 +505,7 @@ function Chip({ ok, children }: { ok: boolean | null; children: React.ReactNode 
 }
 
 /** Report-only panel (Ian's decision): allowed/blocked per AI bot, no severity. */
-function AiPanel({ audit }: { audit: AuditResult }) {
+export function AiPanel({ audit }: { audit: AuditResult }) {
   const ai = audit.discovery.ai;
   if (!ai) return null;
   const groups: AiBotGroup[] = ["search", "user", "training"];
@@ -560,97 +558,87 @@ function AiPanel({ audit }: { audit: AuditResult }) {
   );
 }
 
-export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean }) {
-  const findings = useMemo(() => computeFindings(audit), [audit]);
-  const summary = useMemo(() => summarise(audit, findings), [audit, findings]);
-  const { discovery } = audit;
-  const host = new URL(discovery.origin).host;
-
-  const statusLabel = live
-    ? "In progress"
-    : audit.status === "complete"
-      ? "Complete"
-      : audit.status === "cancelled"
-        ? "Stopped early"
-        : "Failed";
-
+/** Error / page-limit banners shown at the top of every audit screen. */
+export function AuditBanners({ audit }: { audit: AuditResult }) {
   return (
-    <div className="mt-8">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">{host}</h2>
-          <p className={`mt-0.5 text-sm ${muted}`}>
-            {new Date(audit.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} ·{" "}
-            {formatDuration(audit.startedAt, audit.finishedAt)} · {statusLabel}
-          </p>
-        </div>
-      </div>
-
+    <>
       {audit.error && (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {audit.error} {audit.pages.length > 0 && "Results below cover what was crawled before it stopped."}
+          {audit.error} {audit.pages.length > 0 && "Results cover what was crawled before it stopped."}
         </p>
       )}
       {audit.capReached && (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          Stopped at the {audit.pageLimit.toLocaleString("en-GB")}-page limit. The site has more pages than were crawled, so
-          site-wide findings (orphans, sitemap gaps) are provisional.
+          Stopped at the {audit.pageLimit.toLocaleString("en-GB")}-page limit. The site has more pages than were crawled,
+          so site-wide findings (orphans, sitemap gaps, click depth) are provisional.
         </p>
       )}
+    </>
+  );
+}
 
-      {/* Summary tiles */}
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatTile label="Pages crawled" value={summary.pagesCrawled} />
-        <StatTile label="Loading fine" value={summary.okPages} />
-        <StatTile
-          label="Broken links"
-          value={audit.linkCheck?.status === "running" ? `${summary.brokenLinks}…` : summary.brokenLinks}
-          tone={summary.brokenLinks ? "bad" : undefined}
-        />
-        <StatTile label="Redirected" value={summary.redirectedPages} tone={summary.redirectedPages ? "warn" : undefined} />
-        <StatTile label="In sitemap" value={discovery.sitemap.found ? summary.sitemapUrls : "None"} tone={discovery.sitemap.found ? undefined : "warn"} />
-        <StatTile label="Median response" value={summary.medianTimeMs === null ? "—" : `${summary.medianTimeMs} ms`} />
+/** Findings, grouped by category (only categories that have findings are shown). */
+export function FindingsList({
+  findings,
+  origin,
+  live,
+  showCategories = true,
+}: {
+  findings: Finding[];
+  origin: string;
+  live: boolean;
+  showCategories?: boolean;
+}) {
+  if (findings.length === 0) {
+    return (
+      <div className={card}>
+        <p className={`px-4 py-6 text-center text-sm ${muted}`}>
+          {live ? "Nothing yet — findings appear as the audit runs." : "No issues found here."}
+        </p>
       </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        {/* Findings */}
-        <section className="min-w-0 lg:col-span-2">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Findings</h2>
-            <div className={`flex gap-3 text-xs ${muted}`}>
-              <span><span className="font-medium text-red-600 dark:text-red-400">{summary.errors}</span> errors</span>
-              <span><span className="font-medium text-amber-600 dark:text-amber-400">{summary.warnings}</span> warnings</span>
-              <span><span className="font-medium text-sky-600 dark:text-sky-400">{summary.notices}</span> notices</span>
-            </div>
-          </div>
-          <div className={`mt-3 ${card}`}>
-            {findings.length === 0 ? (
-              <p className={`px-4 py-6 text-center text-sm ${muted}`}>
-                {live ? "Nothing yet — findings appear as pages are crawled." : "No issues found in the pages crawled."}
-              </p>
-            ) : (
-              (Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => {
-                const group = findings.filter((f) => f.category === cat);
-                if (group.length === 0) return null;
-                return (
-                  <div key={cat}>
-                    <h3 className={`border-b border-zinc-100 bg-zinc-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide first:rounded-t-md dark:border-zinc-900 dark:bg-zinc-900/40 ${muted}`}>
-                      {CATEGORY_LABELS[cat]}
-                    </h3>
-                    {group.map((f) => (
-                      <FindingItem key={f.id} finding={f} origin={discovery.origin} />
-                    ))}
-                  </div>
-                );
-              })
+    );
+  }
+  return (
+    <div className={card}>
+      {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => {
+        const group = findings.filter((f) => f.category === cat);
+        if (group.length === 0) return null;
+        return (
+          <div key={cat}>
+            {showCategories && (
+              <h3 className={`border-b border-zinc-100 bg-zinc-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide first:rounded-t-md dark:border-zinc-900 dark:bg-zinc-900/40 ${muted}`}>
+                {CATEGORY_LABELS[cat]}
+              </h3>
             )}
+            {group.map((f) => (
+              <FindingItem key={f.id} finding={f} origin={origin} />
+            ))}
           </div>
-        </section>
+        );
+      })}
+    </div>
+  );
+}
 
-        {/* Crawl setup */}
-        <section className="min-w-0">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Crawl setup</h2>
+/** Severity counts for a set of findings (URL-weighted, as in the summary). */
+export function SeverityCounts({ findings }: { findings: Finding[] }) {
+  const n = (sev: Severity) =>
+    findings.filter((f) => f.severity === sev).reduce((t, f) => t + Math.max(1, f.urls.length), 0);
+  return (
+    <div className={`flex gap-3 text-xs ${muted}`}>
+      <span><span className="font-medium text-red-600 dark:text-red-400">{n("error")}</span> errors</span>
+      <span><span className="font-medium text-amber-600 dark:text-amber-400">{n("warning")}</span> warnings</span>
+      <span><span className="font-medium text-sky-600 dark:text-sky-400">{n("info")}</span> notices</span>
+    </div>
+  );
+}
+
+/** robots.txt, sitemap, link checks, site addresses, page limit. */
+export function CrawlSetup({ audit }: { audit: AuditResult }) {
+  const { discovery } = audit;
+  return (
+    <section className="min-w-0">
+      <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Crawl setup</h2>
           <dl className={`mt-3 divide-y divide-zinc-100 text-sm dark:divide-zinc-900 ${card}`}>
             <div className="px-4 py-3">
               <dt className={`text-xs ${muted}`}>Start URL</dt>
@@ -720,15 +708,10 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
               <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">{audit.pageLimit.toLocaleString("en-GB")}</dd>
             </div>
           </dl>
-          <p className={`mt-3 text-xs leading-relaxed ${muted}`}>
-            Pages are read as plain HTML, the way most search crawlers first see them. Links that only
-            appear after JavaScript runs in the browser won&apos;t be found.
-          </p>
-          <AiPanel audit={audit} />
-        </section>
-      </div>
-
-      <Inventory audit={audit} findings={findings} />
-    </div>
+      <p className={`mt-3 text-xs leading-relaxed ${muted}`}>
+        Pages are read as plain HTML, the way most search crawlers first see them. Links that only appear after
+        JavaScript runs in the browser won&apos;t be found.
+      </p>
+    </section>
   );
 }

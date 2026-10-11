@@ -1016,7 +1016,58 @@ with curl), 107 at 150–300 KB; 2 old posts load images over http from
 `content-bloom.com/staging` (confirmed); 7 URLs over 115 characters; no
 HSTS; `http://www` takes 2 hops; all 13 AI bots allowed; no llms.txt.
 
+### Phase 5a: stage screens + session persistence (2026-10-11)
 
+CTRL `tm-1791758714667`. Ian: "the first screen shows each stage, with
+some high-level metrics and the option to click in and explore more", and
+results kept **until the tab is closed** (no server storage yet).
+
+**Routes:**
+- `/admin/seo` (`seo-home.tsx`) — start form + "This session's audits"
+  (last 10: host, time, pages, error/warning/notice counts, status,
+  Remove). One audit runs at a time; the form is disabled with a "Watch
+  it" link while one runs.
+- `/admin/seo/audit/[id]` (`AuditOverview` in `audit-views.tsx`) — header
+  (Stop / Run again), live progress panel (what it's doing, latest URL,
+  counts), summary tiles, then **one card per stage** with status and
+  three headline numbers, each linking to its detail screen. This screen
+  *is* the "what is it doing" screen while an audit runs.
+- `/admin/seo/audit/[id]/[stage]` (`StageDetail`) — stage tabs, metrics,
+  that stage's findings. Discovery adds Crawl setup + AI crawler panel;
+  Crawl & status adds the page inventory.
+- Stage definitions (which findings each owns, status, metrics) live in
+  `stages.ts`, pure, so the PDF can reuse them. Stages: Discovery
+  (sitemap + AI categories + host/HSTS findings), Crawl & status, Links,
+  On-page SEO, Site structure, Structured data, Speed & weight. Page
+  speed (5b) becomes an eighth.
+- `report.tsx` is now building blocks (FindingsList, Inventory, AiPanel,
+  CrawlSetup, AuditBanners, SeverityCounts, StatTile) rather than one
+  report component.
+
+**Session store (`audit-store.ts`):** the crawl runs in a module-level
+singleton (read via `useSyncExternalStore`), not a page component, so
+moving between screens — or elsewhere in the admin by client-side
+navigation — doesn't interrupt it. Mirrored to IndexedDB
+(`mediasurface-seo`) keyed by a per-tab session id in sessionStorage:
+refresh brings results back, a new tab doesn't see them, closing the tab
+forgets them (sessionStorage alone is too small — a 5,000-page audit is
+~18 MB). Rows from closed tabs are deleted once that session's heartbeat
+(every 60s) is a day old. Writes are throttled to every 5s while running
+and immediate when an audit ends. A refresh mid-crawl can't resume — the
+audit is marked Stopped with what it had and says why. `beforeunload`
+warns while an audit runs. Still never sent anywhere: nothing about
+audits leaves the browser except the crawl requests themselves.
+
+**Verified** (local production build, headless Chromium, light + dark,
+1280px + 390px, no console errors, no horizontal overflow): velocity-b
+baseline unchanged (74 pages; 6 errors = 5 off-domain canonicals + 1
+broken link; largest image 355 KB); clicking into a stage mid-crawl,
+leaving to Dashboard and back, all kept the crawl running; reload after
+completion restores it; reload mid-crawl (contentbloom.com) → Stopped
+with the reason shown; a new tab sees no audits and an audit URL shows
+"isn't available".
+
+## Build status
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
 - [x] Storage interface built and proven read-only against

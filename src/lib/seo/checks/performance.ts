@@ -14,7 +14,7 @@ export const IMAGE_NOTICE_BYTES = 150 * 1024;
 const UNCOMPRESSED_MIN_BYTES = 10 * 1024;
 const MIN_CACHE_SECONDS = 24 * 60 * 60;
 
-function isImage(r: LinkCheckResult): boolean {
+export function isImage(r: LinkCheckResult): boolean {
   if (r.contentType) return r.contentType.toLowerCase().startsWith("image/");
   return /\.(jpe?g|png|gif|webp|avif|svg|bmp|ico)(\?|$)/i.test(r.url);
 }
