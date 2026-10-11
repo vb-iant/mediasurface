@@ -74,6 +74,26 @@ export interface OnPageData {
   imageCount: number;
   /** <img> elements with no alt attribute at all (alt="" is valid: decorative). */
   imagesMissingAlt: number;
+  /** Phase 4: structured data found on the page. */
+  structuredData: StructuredDataInfo;
+}
+
+export interface StructuredDataInfo {
+  /** One entry per JSON-LD item (arrays and @graph flattened). */
+  items: StructuredDataItem[];
+  /** JSON-LD blocks that didn't parse (first part of the error each). */
+  parseErrors: string[];
+  /** schema.org types used via microdata (itemtype) — presence only. */
+  microdataTypes: string[];
+  /** Elements using RDFa typeof — presence only. */
+  rdfaCount: number;
+}
+
+export interface StructuredDataItem {
+  /** @type values, e.g. ["BlogPosting"]. */
+  types: string[];
+  /** Top-level properties with a non-empty value (not @context/@type). */
+  keys: string[];
 }
 
 /** A page as recorded in the audit — fetch result plus crawl context. */
@@ -142,6 +162,8 @@ export interface AuditResult {
   blockedByRobots: string[];
   /** Phase 3: status checks on external links and same-site files/images. */
   linkCheck: LinkCheckState;
+  /** What the audit is doing right now (drives the progress label). */
+  stage: "crawling" | "rechecking" | "checking-links" | "done";
 }
 
 export type LinkVerdict = "ok" | "broken" | "unverified";
@@ -160,14 +182,18 @@ export interface LinkCheckResult {
 
 export interface LinkCheckState {
   status: "pending" | "running" | "complete" | "cancelled" | "skipped";
-  /** Unique targets found across all crawled pages. */
+  /** Unique targets found that are eligible for checking. */
   found: number;
-  /** Targets actually checked (≤ MAX_LINK_CHECKS). */
+  /** Targets queued for checking so far (≤ MAX_LINK_CHECKS). */
   total: number;
   results: LinkCheckResult[];
+  /** True when the "Check external links" box was unticked. */
+  externalSkipped: boolean;
+  /** Unique external links found but not checked because of that. */
+  externalNotChecked: number;
 }
 
-/** Ceiling on status checks per audit (files/images first, then external links by how many pages use them). */
+/** Ceiling on status checks per audit (in the order targets are found). */
 export const MAX_LINK_CHECKS = 3000;
 
 /** Default page cap for an audit. */

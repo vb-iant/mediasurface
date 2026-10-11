@@ -23,8 +23,14 @@ export interface LinkCheckItem {
   url: string;
   kind: LinkCheckResult["kind"];
 }
-/** Status-checks a batch; null = not started this time (re-queued). */
-export type CheckBatch = (items: LinkCheckItem[]) => Promise<(LinkCheckResult | null)[]>;
+/**
+ * Status-checks a batch; null = not started this time (re-queued).
+ * `perHost` caps requests in flight to any one host (server clamps 1–4).
+ */
+export type CheckBatch = (
+  items: LinkCheckItem[],
+  opts?: { perHost?: number }
+) => Promise<(LinkCheckResult | null)[]>;
 
 interface QueueItem {
   url: string;
@@ -37,6 +43,8 @@ export interface CrawlOptions {
   fetchBatch: FetchBatch;
   /** Phase 3 link checks. Omit to skip them (e.g. in tests). */
   checkBatch?: CheckBatch;
+  /** "Check external links" box. Same-site files/images are always checked. Default true. */
+  checkExternal?: boolean;
   signal: AbortSignal;
   onProgress: (audit: AuditResult, queued: number) => void;
   pageLimit?: number;
@@ -70,6 +78,7 @@ export function crawlPacing(discovery: DiscoveryResult): { batchSize: number; de
 
 export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
   const { requestedUrl, discovery, fetchBatch, checkBatch, signal, onProgress } = options;
+  const checkExternal = options.checkExternal ?? true;
   const pageLimit = Math.min(Math.max(1, Math.floor(options.pageLimit ?? PAGE_LIMIT)), MAX_PAGE_LIMIT);
   const { origin, robots } = discovery;
   const { batchSize, delayMs } = crawlPacing(discovery);
@@ -94,8 +103,20 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
     capReached: false,
     pages,
     blockedByRobots: blockedUrls,
-    linkCheck: { status: "pending", found: 0, total: 0, results: [] },
+    linkCheck: {
+      status: "pending",
+      found: 0,
+      total: 0,
+      results: [],
+      externalSkipped: !checkExternal,
+      externalNotChecked: 0,
+    },
+    stage: "crawling",
   };
+  const linkChecker = checkBatch
+    ? createLinkChecker(audit, checkBatch, checkExternal, signal, () => onProgress(snapshot(), pendingCount()))
+    : null;
+  const pendingCount = () => queue.length + sitemapPending.filter((u) => !seen.has(urlKey(u))).length;
 
   function enqueue(url: string, depth: number | null): void {
     const key = urlKey(url);
@@ -191,6 +212,7 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
         pages.push(page);
 
         if (!finalOnSite || !result.isHtml || result.status >= 400) return;
+        linkChecker?.addFromPage(page);
         for (const link of result.internalLinks) {
           const target = urlKey(link);
           if (target === finalKey) continue; // self-links don't count as inlinks
@@ -216,18 +238,30 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
   }
 
   if (audit.status === "complete") {
-    await recheckFailures(audit, pages, origin, fetchBatch, signal, () => onProgress(snapshot(), 0));
+    audit.stage = "rechecking";
+    await recheckFailures(audit, pages, origin, fetchBatch, signal, (page) => linkChecker?.addFromPage(page), () =>
+      onProgress(snapshot(), 0)
+    );
     if (signal.aborted) audit.status = "cancelled";
   }
 
-  if (audit.status === "complete" && checkBatch) {
-    await runLinkChecks(audit, pages, checkBatch, signal, () =>
-      onProgress(snapshot(), 0)
-    );
+  if (linkChecker) {
+    if (audit.status === "complete") {
+      // Crawl's done: same-site files/images now, a little faster since the
+      // crawl's own requests to the site have stopped, then wait for the
+      // external-link queue to drain.
+      audit.stage = "checking-links";
+      onProgress(snapshot(), 0);
+      await linkChecker.finish();
+    } else {
+      await linkChecker.stop();
+      if (audit.linkCheck.results.length === 0) audit.linkCheck.status = "skipped";
+    }
   } else {
     audit.linkCheck.status = "skipped";
   }
 
+  audit.stage = "done";
   audit.finishedAt = new Date().toISOString();
   return snapshot();
 }
@@ -246,6 +280,7 @@ async function recheckFailures(
   origin: string,
   fetchBatch: FetchBatch,
   signal: AbortSignal,
+  onRecovered: (page: AuditPage) => void,
   progress: () => void
 ): Promise<void> {
   const retryable = (p: AuditPage) =>
@@ -266,6 +301,7 @@ async function recheckFailures(
       const { p, i } = chunk[k];
       if (retryable({ ...p, ...r } as AuditPage)) return;
       pages[i] = { ...r, depth: p.depth, inSitemap: p.inSitemap, inlinkCount: p.inlinkCount };
+      if (r.isHtml && isSameSite(r.finalUrl, origin)) onRecovered(pages[i]);
     });
     progress();
     await sleep(DEFAULT_DELAY_MS, signal);
@@ -273,76 +309,122 @@ async function recheckFailures(
 }
 
 /**
- * Phase 3: status-check every unique external link and same-site
- * file/image found on the crawled pages. Files/images go first (they're
- * the site's own), then external links by how many pages use them, up to
- * MAX_LINK_CHECKS. Mutates audit.linkCheck as it goes.
+ * Phase 3 link checks, streamed alongside the crawl (phase 4 change).
+ *
+ * - External links are checked as pages arrive: one check request runs
+ *   alongside the page fetches, so by the end of the crawl most are done.
+ *   Before this, every check waited for the crawl to finish — ~3 of ~5
+ *   minutes on contentbloom.com.
+ * - The audited site's own files/images are held until the crawl ends, so
+ *   the site isn't hit by page fetches and file checks at the same time;
+ *   then they're checked with up to 4 in flight (the crawl used 5).
+ * - Targets are checked in the order found, up to MAX_LINK_CHECKS.
  */
-async function runLinkChecks(
+function createLinkChecker(
   audit: AuditResult,
-  pages: AuditPage[],
   checkBatch: CheckBatch,
+  checkExternal: boolean,
   signal: AbortSignal,
   progress: () => void
-): Promise<void> {
-  const refs = new Map<string, { kind: LinkCheckItem["kind"]; count: number }>();
-  for (const p of pages) {
-    if (p.status >= 400 || !p.isHtml) continue;
-    for (const url of p.assetLinks) {
-      const r = refs.get(url);
-      if (r) r.count++;
-      else refs.set(url, { kind: "asset", count: 1 });
-    }
-    for (const url of p.externalLinks) {
-      const r = refs.get(url);
-      if (r) r.count++;
-      else refs.set(url, { kind: "external", count: 1 });
-    }
-  }
-  const ordered = [...refs]
-    .sort(
-      ([, a], [, b]) =>
-        (a.kind === b.kind ? 0 : a.kind === "asset" ? -1 : 1) || b.count - a.count
-    )
-    .map(([url, { kind }]) => ({ url, kind }));
-
+) {
   const state = audit.linkCheck;
-  state.found = ordered.length;
-  const queue: LinkCheckItem[] = ordered.slice(0, MAX_LINK_CHECKS);
-  state.total = queue.length;
-  state.status = queue.length ? "running" : "complete";
-  progress();
-
+  const seenTargets = new Set<string>();
+  const skippedExternal = new Set<string>();
+  const externals: LinkCheckItem[] = [];
+  const assets: LinkCheckItem[] = [];
+  let assetsReleased = false;
+  let inFlight: Promise<void> | null = null;
+  let stopped = false;
   let stalls = 0;
-  while (queue.length > 0 && !signal.aborted) {
-    const batch = queue.splice(0, CHECK_BATCH);
-    let results: (LinkCheckResult | null)[];
-    try {
-      results = await checkBatch(batch);
-    } catch (err) {
-      if (signal.aborted) break;
-      await sleep(1500, signal);
-      if (signal.aborted) break;
+
+  const queueTarget = (url: string, kind: LinkCheckItem["kind"]) => {
+    if (seenTargets.has(url)) return;
+    seenTargets.add(url);
+    state.found++;
+    if (state.total >= MAX_LINK_CHECKS) return;
+    state.total++;
+    (kind === "asset" ? assets : externals).push({ url, kind });
+  };
+
+  function nextBatch(): { items: LinkCheckItem[]; perHost: number } | null {
+    if (assetsReleased && assets.length) return { items: assets.splice(0, CHECK_BATCH), perHost: 4 };
+    if (externals.length) return { items: externals.splice(0, CHECK_BATCH), perHost: 2 };
+    return null;
+  }
+
+  function pump(): void {
+    if (inFlight || stopped || signal.aborted) return;
+    const next = nextBatch();
+    if (!next) return;
+    if (state.status === "pending") state.status = "running";
+    inFlight = (async () => {
+      let results: (LinkCheckResult | null)[];
       try {
-        results = await checkBatch(batch);
-      } catch (err2) {
+        results = await checkBatch(next.items, { perHost: next.perHost });
+      } catch {
+        if (signal.aborted) return;
+        await sleep(1500, signal);
+        try {
+          results = await checkBatch(next.items, { perHost: next.perHost });
+        } catch (err) {
+          stopped = true;
+          state.status = "cancelled";
+          audit.error = `Link checking stopped early: ${err instanceof Error ? err.message : String(err)}`;
+          return;
+        }
+      }
+      const notStarted = next.items.filter((_, i) => !results[i]);
+      for (const r of results) if (r) state.results.push(r);
+      // Anything the server's time budget didn't reach goes back on the front.
+      const target = next.items[0]?.kind === "asset" ? assets : externals;
+      target.unshift(...notStarted);
+      stalls = notStarted.length === next.items.length ? stalls + 1 : 0;
+      if (stalls >= 3) {
+        stopped = true;
         state.status = "cancelled";
-        audit.error = `Link checking stopped early: ${err2 instanceof Error ? err2.message : String(err ?? err2)}`;
+        audit.error = "Link checking stopped early: the checker kept running out of time.";
         return;
       }
-    }
-    const notStarted = batch.filter((_, i) => !results[i]);
-    for (const r of results) if (r) state.results.push(r);
-    // Re-queue anything the server didn't get to (its time budget ran out).
-    queue.unshift(...notStarted);
-    stalls = notStarted.length === batch.length ? stalls + 1 : 0;
-    if (stalls >= 3) {
-      state.status = "cancelled";
-      audit.error = "Link checking stopped early: the checker kept running out of time.";
-      return;
-    }
-    progress();
-    if (queue.length > 0) await sleep(CHECK_DELAY_MS, signal);
+      progress();
+      await sleep(CHECK_DELAY_MS, signal);
+    })().finally(() => {
+      inFlight = null;
+      pump();
+    });
   }
-  state.status = signal.aborted ? "cancelled" : "complete";
+
+  return {
+    addFromPage(page: AuditPage) {
+      for (const url of page.assetLinks ?? []) queueTarget(url, "asset");
+      for (const url of page.externalLinks ?? []) {
+        if (checkExternal) queueTarget(url, "external");
+        else skippedExternal.add(url);
+      }
+      state.externalNotChecked = skippedExternal.size;
+      pump();
+    },
+    /** Crawl finished: release same-site files, then wait until every queue is empty. */
+    async finish() {
+      assetsReleased = true;
+      if (state.total === 0) {
+        state.status = "complete";
+        return;
+      }
+      pump();
+      while (!stopped && !signal.aborted && (inFlight || assets.length || externals.length)) {
+        if (inFlight) await inFlight;
+        else pump();
+        if (!inFlight && (assets.length || externals.length) && !stopped) await sleep(50, signal);
+      }
+      if (!stopped) state.status = signal.aborted ? "cancelled" : "complete";
+    },
+    /** Crawl was cancelled or failed: let the request in flight finish, then stop. */
+    async stop() {
+      stopped = true;
+      if (inFlight) await inFlight;
+      if (state.status === "running" || state.status === "pending") {
+        state.status = state.results.length ? "cancelled" : "skipped";
+      }
+    },
+  };
 }

@@ -156,13 +156,23 @@ export function linkFindings(audit: AuditResult): Finding[] {
   }
 
   const lc = audit.linkCheck;
+  if (lc?.externalSkipped) {
+    findings.push({
+      id: "links-external-skipped",
+      title: "External links weren't checked",
+      severity: "info",
+      category: "links",
+      description: `"Check external links" was turned off for this audit, so ${lc.externalNotChecked.toLocaleString("en-GB")} unique links to other sites weren't checked. This site's own pages, files and images were.`,
+      urls: [],
+    });
+  }
   if (lc && lc.found > lc.total) {
     findings.push({
       id: "links-not-checked",
       title: "Some links weren't checked",
       severity: "info",
       category: "links",
-      description: `Found ${lc.found.toLocaleString("en-GB")} unique external links, files and images; checked the first ${lc.total.toLocaleString("en-GB")} (files and images first, then external links used on the most pages).`,
+      description: `Found ${lc.found.toLocaleString("en-GB")} unique external links, files and images; checked the first ${lc.total.toLocaleString("en-GB")} found.`,
       urls: [],
     });
   }

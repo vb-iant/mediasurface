@@ -5,15 +5,29 @@
 
 export type Severity = "error" | "warning" | "info";
 
-/** Groups findings in the report (in this order). */
-export type Category = "links" | "status" | "sitemap" | "onpage";
+/** Groups findings in the report. The order of CATEGORY_LABELS is the report order. */
+export type Category =
+  | "links"
+  | "status"
+  | "sitemap"
+  | "structure"
+  | "onpage"
+  | "schema"
+  | "performance"
+  | "ai";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   links: "Links",
   status: "Status & redirects",
   sitemap: "Sitemap & robots.txt",
+  structure: "Site structure",
   onpage: "On-page SEO",
+  schema: "Structured data",
+  performance: "Speed & weight",
+  ai: "AI crawlers",
 };
+
+export const CATEGORY_ORDER: Category[] = Object.keys(CATEGORY_LABELS) as Category[];
 
 export interface LinkSource {
   page: string;

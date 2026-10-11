@@ -844,6 +844,13 @@ findings below shouldn't change):
 - Warnings: 8 titles over 60 chars, ~20 descriptions over 160,
   author-archive pages 2/3 sharing titles/descriptions with page 1.
 - Notice: `/blog/whats-your-product-being-hired-to-do` has two H1s.
+- (Phase 4) Notice: "No structured data found" — no JSON-LD, microdata or
+  RDFa on any page (confirmed by hand).
+- (Phase 4) No "Redirects to the homepage", no pages more than 3 clicks
+  deep (the two depth-4 entries are `/contact-us`, a redirect, and the 404).
+  Notice: `/meet-alex` has only one internal link.
+- (Phase 4) With "Check external links" unticked: ~6s, 10 same-site
+  files/images checked, the 404 still reported.
 
 ### Phase 3: broken links (2026-10-11)
 
@@ -908,6 +915,59 @@ link checks and sitemap comparisons but aren't crawled further.
   DNS failures alone).
 - UI: light/dark, 1280/390px, no console errors. Fixed a phone-width
   overflow (grid columns needed `min-w-0` so long URLs truncate).
+
+### Phase 4: more technical checks (2026-10-11)
+
+Scoped with Ian; CTRL tasks on the Mediasurface SEO board (phase 4). Page
+speed via PageSpeed Insights is phase 5 (key in Vercel env
+`PAGESPEED_API_KEY`, copy in project knowledge
+`claude/mediasurface-pagespeed-credentials.md`). "Saved history" moved to
+Later (it used to be called phase 4 on the board). Near-duplicate content
+detection deferred to Later (Ian).
+
+**Decisions (Ian):**
+- **"Check external links"** checkbox on the form, **ticked by default**.
+  Same-site files/images are always checked.
+- **AI crawlers:** a report panel listing each bot as allowed/blocked with
+  no severity, plus **one warning only when AI search/answer bots are
+  blocked** (being cited in AI answers is a traffic source); blocking
+  training crawlers stays neutral.
+- Near-duplicate content: later.
+
+**Link checks now stream alongside the crawl** (`createLinkChecker` in
+`crawler.ts`): external links are checked as pages arrive (one check
+request alongside the page fetches, ≤2 per host); the audited site's own
+files/images wait until the crawl ends (so the site isn't hit by page
+fetches and file checks at once), then go with `perHost: 4` (the route
+clamps 1–4). Targets are checked in the order found up to
+`MAX_LINK_CHECKS`. `AuditResult.stage` (crawling / rechecking /
+checking-links / done) drives the progress label. **Measured on
+contentbloom.com: 296s → 187s**, identical results.
+
+**New categories:** Site structure, Structured data, Speed & weight, AI
+crawlers (`CATEGORY_LABELS` order = report order).
+
+**Checks added (part 1):**
+- `checks/structure.ts` — "Redirects to the homepage" (warning, status
+  category; a soft-404 pattern; excluded from the generic "linked
+  redirects" notice; sitemap notes now say "→ homepage"), "Pages more
+  than 3 clicks deep" (warning, indexable pages only — redirects, errors
+  and noindex are excluded), "Pages with only one internal link" (notice,
+  pagination/query URLs excluded). Provisional caveat when the crawl was
+  capped or stopped.
+- `checks/schema.ts` — JSON-LD extracted per page (arrays and `@graph`
+  flattened; microdata/RDFa counted for presence). "Structured data that
+  doesn't parse" (error), "missing key properties" for common types
+  (warning; rules table at the top of the file, not full schema.org
+  validation — the finding links Google's Rich Results Test), site
+  summary of types used (notice), homepage without Organization/WebSite
+  (notice), none anywhere (notice). Row details show each page's types.
+
+**Verified (part 1):** velocity-b.com baseline above. contentbloom.com: 342
+URLs redirect to the homepage (date/author archives, one linked from 389
+pages); 156 pages 4–5 clicks deep; 13 older Alchemy blog posts' Article
+markup lacks `image` (confirmed: no featured image, while normal posts
+include it).
 
 
 

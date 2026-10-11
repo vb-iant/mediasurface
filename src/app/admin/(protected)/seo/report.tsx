@@ -240,6 +240,17 @@ function PageDetails({ page, issues }: { page: AuditPage; issues: PageIssue[] })
             value={op.imageCount ? `${op.imageCount} total, ${op.imagesMissingAlt} without alt text` : "None"}
           />
           <Field label="Links" value={`${page.internalLinks.length} internal, ${page.externalLinkCount} external`} />
+          <Field
+            label="Structured data"
+            value={
+              [
+                ...new Set([
+                  ...(op.structuredData?.items.flatMap((i) => i.types) ?? []),
+                  ...(op.structuredData?.microdataTypes ?? []).map((t) => `${t} (microdata)`),
+                ]),
+              ].join(", ") || (op.structuredData?.parseErrors.length ? "Invalid JSON-LD" : null)
+            }
+          />
         </dl>
       ) : (
         <p className={`text-sm ${muted}`}>

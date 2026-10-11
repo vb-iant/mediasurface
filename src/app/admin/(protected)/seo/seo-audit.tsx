@@ -44,6 +44,9 @@ export function SeoAudit() {
   const [queued, setQueued] = useState(0);
   const [pacingNote, setPacingNote] = useState<string | null>(null);
   const [pageLimit, setPageLimit] = useState<number>(PAGE_LIMIT);
+  // Ticked by default (Ian, 2026-10-11): every audit is complete unless
+  // someone deliberately chooses a quick one.
+  const [checkExternal, setCheckExternal] = useState(true);
   /** The limit the current/last audit actually ran with. */
   const [activeLimit, setActiveLimit] = useState<number>(PAGE_LIMIT);
   const controllerRef = useRef<AbortController | null>(null);
@@ -108,10 +111,10 @@ export function SeoAudit() {
       const data = await postJson<{ pages: FetchedPage[] }>("/api/seo/fetch", { origin, urls }, controller.signal);
       return data.pages;
     };
-    const checkBatch = async (items: LinkCheckItem[]) => {
+    const checkBatch = async (items: LinkCheckItem[], opts?: { perHost?: number }) => {
       const data = await postJson<{ results: (LinkCheckResult | null)[] }>(
         "/api/seo/check",
-        { items },
+        { items, perHost: opts?.perHost },
         controller.signal
       );
       return data.results;
@@ -122,6 +125,7 @@ export function SeoAudit() {
       discovery,
       fetchBatch,
       checkBatch,
+      checkExternal,
       pageLimit,
       signal: controller.signal,
       onProgress: (snapshot, q) => {
@@ -133,7 +137,7 @@ export function SeoAudit() {
     setQueued(0);
     setPhase("done");
     controllerRef.current = null;
-  }, [input, pageLimit]);
+  }, [input, pageLimit, checkExternal]);
 
   const stop = useCallback(() => {
     controllerRef.current?.abort();
@@ -142,10 +146,14 @@ export function SeoAudit() {
   const fetched = audit?.pages.length ?? 0;
   const expected = Math.min(activeLimit, fetched + queued);
   const linkCheck = audit?.linkCheck;
-  const checkingLinks = running && linkCheck?.status === "running";
+  const stage = audit?.stage ?? "crawling";
+  const afterCrawl = running && (stage === "checking-links" || stage === "rechecking");
   const checked = linkCheck?.results.length ?? 0;
-  const pct = checkingLinks
-    ? Math.round((checked / Math.max(1, linkCheck!.total)) * 100)
+  const linksTotal = linkCheck?.total ?? 0;
+  // Links are checked during the crawl now, so the bar follows the crawl
+  // until it ends, then follows whatever link checks are left.
+  const pct = afterCrawl
+    ? Math.round((checked / Math.max(1, linksTotal)) * 100)
     : expected > 0
       ? Math.round((fetched / expected) * 100)
       : 0;
@@ -157,7 +165,7 @@ export function SeoAudit() {
           e.preventDefault();
           if (!running) void start();
         }}
-        className="flex flex-col gap-2 sm:flex-row"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
       >
         <input
           type="text"
@@ -184,6 +192,16 @@ export function SeoAudit() {
             </option>
           ))}
         </select>
+        <label className="flex shrink-0 cursor-pointer items-center gap-2 px-1 text-sm text-zinc-700 dark:text-zinc-300">
+          <input
+            type="checkbox"
+            checked={checkExternal}
+            onChange={(e) => setCheckExternal(e.target.checked)}
+            disabled={running}
+            className="h-4 w-4 rounded border-zinc-300 accent-zinc-900 dark:accent-zinc-50"
+          />
+          Check external links
+        </label>
         {running ? (
           <button
             type="button"
@@ -205,7 +223,10 @@ export function SeoAudit() {
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
           A full {pageLimit.toLocaleString("en-GB")}-page audit takes {estimateDuration(pageLimit)}
           {pageLimit > PAGE_LIMIT ? " — keep this tab open until it finishes, results aren't saved." : "."}{" "}
-          Smaller sites finish sooner. Checking external links, files and images runs at the end and can add a few minutes on link-heavy sites.
+          Smaller sites finish sooner.{" "}
+          {checkExternal
+            ? "External links are checked as pages are crawled, which can add a couple of minutes on link-heavy sites."
+            : "External links won't be checked (this site's own pages, files and images still are)."}
         </p>
       )}
 
@@ -221,18 +242,18 @@ export function SeoAudit() {
             <span className="font-medium text-zinc-900 dark:text-zinc-50">
               {phase === "discovering"
                 ? "Reading robots.txt and sitemaps…"
-                : checkingLinks
-                  ? "Checking links, files and images…"
-                  : "Crawling pages…"}
+                : stage === "rechecking"
+                  ? "Rechecking pages that failed…"
+                  : stage === "checking-links"
+                    ? "Finishing link, file and image checks…"
+                    : "Crawling pages…"}
             </span>
-            {phase === "crawling" && checkingLinks && (
-              <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
-                {checked.toLocaleString("en-GB")} of {linkCheck!.total.toLocaleString("en-GB")} checked · {fetched} pages crawled
-              </span>
-            )}
-            {phase === "crawling" && !checkingLinks && (
-              <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
-                {fetched} fetched · {queued} queued · limit {activeLimit.toLocaleString("en-GB")}
+            {phase === "crawling" && (
+              <span className="text-right tabular-nums text-zinc-500 dark:text-zinc-400">
+                {afterCrawl
+                  ? `${fetched} pages crawled`
+                  : `${fetched} fetched · ${queued} queued · limit ${activeLimit.toLocaleString("en-GB")}`}
+                {linksTotal > 0 && ` · ${checked.toLocaleString("en-GB")} of ${linksTotal.toLocaleString("en-GB")} links checked`}
               </span>
             )}
           </div>

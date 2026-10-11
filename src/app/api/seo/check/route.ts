@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   const unauthorized = await requireSession(request);
   if (unauthorized) return unauthorized;
 
-  let body: { items?: unknown };
+  let body: { items?: unknown; perHost?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
     items.push({ url: item.url, kind: item.kind });
   }
 
-  const results = await checkLinks(items, { concurrency: 12 });
+  // ≤2 per host while the crawl is running (external links); the browser
+  // asks for up to 4 for the audited site's own files once the crawl ends.
+  const perHost = typeof body.perHost === "number" ? Math.min(4, Math.max(1, Math.floor(body.perHost))) : 2;
+  const results = await checkLinks(items, { concurrency: 12, perHost });
   return Response.json({ results }, { headers: { "cache-control": "no-store" } });
 }

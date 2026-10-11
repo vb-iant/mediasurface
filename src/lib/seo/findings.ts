@@ -8,10 +8,13 @@ import { isSameSite, urlKey } from "./urls";
 import type { AuditPage, AuditResult } from "./types";
 import { isNoindex, onPageFindings } from "./checks/on-page";
 import { linkFindings } from "./checks/links";
+import { redirectsToHome, structureFindings } from "./checks/structure";
+import { schemaFindings } from "./checks/schema";
 import type { Category, Finding, Severity } from "./checks/types";
 
 export type { Category, Finding, LinkSource, Severity } from "./checks/types";
 export { CATEGORY_LABELS } from "./checks/types";
+import { CATEGORY_ORDER } from "./checks/types";
 
 export function isOnSite(page: AuditPage, origin: string): boolean {
   return isSameSite(page.finalUrl, origin);
@@ -61,7 +64,11 @@ export function computeFindings(audit: AuditResult): Finding[] {
   // Only pages actually reached by a link (depth !== null) — a sitemap-only
   // URL that redirects is reported under the sitemap findings instead.
   const redirects = pages.filter(
-    (p) => p.redirectChain.length === 1 && isOnSite(p, origin) && p.depth !== null
+    (p) =>
+      p.redirectChain.length === 1 &&
+      isOnSite(p, origin) &&
+      p.depth !== null &&
+      !redirectsToHome(p, audit) // reported as "Redirects to the homepage" instead
   );
   if (redirects.length > 0) {
     findings.push({
@@ -122,6 +129,18 @@ export function computeFindings(audit: AuditResult): Finding[] {
         severity: "warning",
         description: "A sitemap should only list final, working URLs. These return an error or redirect.",
         urls: sitemapProblems.map((p) => p.url),
+        notes: Object.fromEntries(
+          sitemapProblems.map((p) => [
+            p.url,
+            isBrokenPage(p)
+              ? p.status
+                ? `HTTP ${p.status}`
+                : p.error ?? "No response"
+              : redirectsToHome(p, audit)
+                ? `${p.redirectChain[0].status} → homepage`
+                : `${p.redirectChain[0].status} → ${p.finalUrl.replace(new URL(origin).origin, "") || "/"}`,
+          ])
+        ),
       });
     }
 
@@ -223,9 +242,11 @@ export function computeFindings(audit: AuditResult): Finding[] {
   }
 
   findings.push(...onPageFindings(audit));
+  findings.push(...structureFindings(audit));
+  findings.push(...schemaFindings(audit));
 
   const severityOrder: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-  const categoryOrder: Record<Category, number> = { links: 0, status: 1, sitemap: 2, onpage: 3 };
+  const categoryOrder = Object.fromEntries(CATEGORY_ORDER.map((c, i) => [c, i])) as Record<Category, number>;
   return findings.sort(
     (a, b) =>
       categoryOrder[a.category] - categoryOrder[b.category] ||

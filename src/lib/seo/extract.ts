@@ -10,7 +10,7 @@
 import "server-only";
 import * as cheerio from "cheerio";
 import { isSameSite, looksLikePage } from "./urls";
-import type { OnPageData } from "./types";
+import type { OnPageData, StructuredDataInfo, StructuredDataItem } from "./types";
 
 const MAX_LINKS_PER_PAGE = 2000;
 const MAX_LINK_TEXT = 80;
@@ -133,6 +133,7 @@ export function extractHtml(
   });
 
   const onPage: OnPageData = {
+    structuredData: extractStructuredData($),
     titleCount: titles.length,
     metaDescription: clean(descriptions.first().attr("content")),
     metaDescriptionCount: descriptions.length,
@@ -158,4 +159,57 @@ export function extractHtml(
     linkText,
     onPage,
   };
+}
+
+/** Non-empty = not null/undefined, not "", not an empty array or object. */
+function hasValue(v: unknown): boolean {
+  if (v == null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v as object).length > 0;
+  return true;
+}
+
+function toItems(node: unknown, out: StructuredDataItem[], depth = 0): void {
+  if (depth > 4 || node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const n of node) toItems(n, out, depth + 1);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  if (Array.isArray(obj["@graph"])) {
+    for (const n of obj["@graph"] as unknown[]) toItems(n, out, depth + 1);
+    return;
+  }
+  const rawType = obj["@type"];
+  const types = (Array.isArray(rawType) ? rawType : rawType ? [rawType] : [])
+    .filter((t): t is string => typeof t === "string")
+    // "https://schema.org/Article" → "Article"
+    .map((t) => t.replace(/^https?:\/\/schema\.org\//i, ""));
+  const keys = Object.keys(obj).filter((k) => !k.startsWith("@") && hasValue(obj[k]));
+  out.push({ types, keys });
+}
+
+function extractStructuredData($: cheerio.CheerioAPI): StructuredDataInfo {
+  const items: StructuredDataItem[] = [];
+  const parseErrors: string[] = [];
+  $('script[type="application/ld+json" i]').each((_, el) => {
+    const raw = $(el).text().trim();
+    if (!raw) return;
+    try {
+      toItems(JSON.parse(raw), items);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      parseErrors.push(msg.length > 100 ? `${msg.slice(0, 99)}…` : msg);
+    }
+  });
+  const microdataTypes = [
+    ...new Set(
+      $("[itemtype]")
+        .map((_, el) => ($(el).attr("itemtype") ?? "").replace(/^https?:\/\/schema\.org\//i, "").trim())
+        .get()
+        .filter(Boolean)
+    ),
+  ].slice(0, 20);
+  return { items: items.slice(0, 50), parseErrors, microdataTypes, rdfaCount: $("[typeof]").length };
 }
