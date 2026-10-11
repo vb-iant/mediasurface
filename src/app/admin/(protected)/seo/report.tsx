@@ -1,0 +1,412 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { computeFindings, isBrokenPage, isOnSite, summarise, type Finding, type Severity } from "@/lib/seo/findings";
+import type { AuditPage, AuditResult } from "@/lib/seo/types";
+
+const SEVERITY_STYLE: Record<Severity, { chip: string; label: string; dot: string }> = {
+  error: {
+    chip: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+    dot: "bg-red-500",
+    label: "Error",
+  },
+  warning: {
+    chip: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+    dot: "bg-amber-500",
+    label: "Warning",
+  },
+  info: {
+    chip: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+    dot: "bg-sky-500",
+    label: "Notice",
+  },
+};
+
+const card = "rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950";
+const muted = "text-zinc-500 dark:text-zinc-400";
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDuration(startIso: string, endIso: string | null): string {
+  const ms = (endIso ? Date.parse(endIso) : Date.now()) - Date.parse(startIso);
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function displayPath(url: string, origin: string): string {
+  try {
+    const u = new URL(url);
+    if (u.origin === origin) return `${u.pathname}${u.search}` || "/";
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+function StatTile({ label, value, tone }: { label: string; value: string | number; tone?: "bad" | "warn" }) {
+  const toneClass =
+    tone === "bad" ? "text-red-600 dark:text-red-400" : tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-zinc-900 dark:text-zinc-50";
+  return (
+    <div className={`${card} px-4 py-3`}>
+      <div className={`text-xs ${muted}`}>{label}</div>
+      <div className={`mt-1 text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function StatusBadge({ page }: { page: AuditPage }) {
+  let cls = "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+  if (isBrokenPage(page)) cls = "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+  else if (page.redirectChain.length > 0) cls = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+  const label = page.status === 0 ? "Failed" : page.redirectChain.length > 0 ? `${page.redirectChain[0].status} → ${page.status}` : String(page.status);
+  return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${cls}`}>{label}</span>;
+}
+
+const URL_PREVIEW = 25;
+
+function FindingItem({ finding, origin }: { finding: Finding; origin: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const style = SEVERITY_STYLE[finding.severity];
+  const visible = showAll ? finding.urls : finding.urls.slice(0, URL_PREVIEW);
+  return (
+    <details className="group border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} aria-hidden />
+        <span className="flex-1 text-sm font-medium text-zinc-900 dark:text-zinc-50">{finding.title}</span>
+        {finding.urls.length > 0 && (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${style.chip}`}>{finding.urls.length}</span>
+        )}
+        <span className={`hidden text-xs sm:inline ${muted}`}>{style.label}</span>
+        <span className={`text-xs transition-transform group-open:rotate-90 ${muted}`} aria-hidden>
+          ▸
+        </span>
+      </summary>
+      <div className="px-4 pb-4 pl-9">
+        <p className={`text-sm ${muted}`}>{finding.description}</p>
+        {finding.caveat && (
+          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            {finding.caveat}
+          </p>
+        )}
+        {visible.length > 0 && (
+          <ul className="mt-3 space-y-1 text-sm">
+            {visible.map((u) => (
+              <li key={u} className="truncate">
+                <a href={u} target="_blank" rel="noreferrer noopener" className="text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-700 dark:text-zinc-300 dark:decoration-zinc-700 dark:hover:decoration-zinc-300">
+                  {displayPath(u, origin)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+        {finding.urls.length > URL_PREVIEW && (
+          <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-xs font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
+            {showAll ? "Show fewer" : `Show all ${finding.urls.length}`}
+          </button>
+        )}
+      </div>
+    </details>
+  );
+}
+
+type SortKey = "url" | "status" | "depth" | "timeMs" | "sizeBytes" | "inlinkCount";
+type Filter = "all" | "ok" | "redirect" | "broken" | "unlisted";
+const PAGE_SIZE = 50;
+
+function Inventory({ audit }: { audit: AuditResult }) {
+  const { origin } = audit.discovery;
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "depth", dir: 1 });
+  const [page, setPage] = useState(1);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = audit.pages.filter((p) => {
+      if (q && !p.url.toLowerCase().includes(q) && !(p.title ?? "").toLowerCase().includes(q)) return false;
+      switch (filter) {
+        case "ok":
+          return !isBrokenPage(p) && p.redirectChain.length === 0;
+        case "redirect":
+          return p.redirectChain.length > 0;
+        case "broken":
+          return isBrokenPage(p);
+        case "unlisted":
+          return !p.inSitemap && isOnSite(p, origin) && p.isHtml && p.status === 200;
+        default:
+          return true;
+      }
+    });
+    const val = (p: AuditPage): string | number => {
+      switch (sort.key) {
+        case "url":
+          return p.url;
+        case "depth":
+          return p.depth ?? Number.MAX_SAFE_INTEGER;
+        default:
+          return p[sort.key];
+      }
+    };
+    return filtered.sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      return (va < vb ? -1 : va > vb ? 1 : 0) * sort.dir;
+    });
+  }, [audit.pages, query, filter, sort, origin]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const current = Math.min(page, totalPages);
+  const visible = rows.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+
+  function header(key: SortKey, label: string, align = "text-left") {
+    const active = sort.key === key;
+    return (
+      <th className={`px-3 py-2 font-medium ${align}`}>
+        <button
+          type="button"
+          onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((s.dir * -1) as 1 | -1) : 1 }))}
+          className={`inline-flex items-center gap-1 hover:text-zinc-900 dark:hover:text-zinc-50 ${active ? "text-zinc-900 dark:text-zinc-50" : ""}`}
+        >
+          {label}
+          <span className="text-[10px]" aria-hidden>
+            {active ? (sort.dir === 1 ? "▲" : "▼") : ""}
+          </span>
+        </button>
+      </th>
+    );
+  }
+
+  const filters: { id: Filter; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "ok", label: "OK" },
+    { id: "redirect", label: "Redirects" },
+    { id: "broken", label: "Broken" },
+  ];
+  if (audit.discovery.sitemap.found) filters.push({ id: "unlisted", label: "Not in sitemap" });
+
+  return (
+    <section className="mt-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Page inventory</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-zinc-300 text-xs dark:border-zinc-700">
+            {filters.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  setFilter(f.id);
+                  setPage(1);
+                }}
+                className={`px-2.5 py-1.5 ${filter === f.id ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900"}`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Filter by URL or title…"
+            aria-label="Filter pages"
+            className="w-56 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+          />
+        </div>
+      </div>
+
+      <div className={`mt-3 overflow-x-auto ${card}`}>
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+            <tr>
+              {header("url", "Page")}
+              {header("status", "Status")}
+              {header("depth", "Depth", "text-right")}
+              {header("inlinkCount", "Inlinks", "text-right")}
+              <th className="px-3 py-2 font-medium">Sitemap</th>
+              {header("timeMs", "Time", "text-right")}
+              {header("sizeBytes", "Size", "text-right")}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={7} className={`px-3 py-6 text-center text-sm ${muted}`}>
+                  No pages match.
+                </td>
+              </tr>
+            ) : (
+              visible.map((p) => (
+                <tr key={p.url} className="border-b border-zinc-100 align-top last:border-0 dark:border-zinc-900">
+                  <td className="max-w-[22rem] px-3 py-2">
+                    <a href={p.url} target="_blank" rel="noreferrer noopener" className="block truncate text-zinc-900 hover:underline dark:text-zinc-50" title={p.url}>
+                      {displayPath(p.url, origin)}
+                    </a>
+                    <div className={`truncate text-xs ${muted}`} title={p.title ?? undefined}>
+                      {p.error ?? p.title ?? (p.isHtml ? "No title" : p.contentType ?? "—")}
+                    </div>
+                    {p.redirectChain.length > 0 && (
+                      <div className={`truncate text-xs ${muted}`} title={p.finalUrl}>
+                        → {displayPath(p.finalUrl, origin)}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge page={p} />
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.depth ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.inlinkCount}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{p.inSitemap ? "Yes" : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.status ? `${p.timeMs} ms` : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.sizeBytes ? formatBytes(p.sizeBytes) : "—"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className={`mt-3 flex items-center justify-between text-xs ${muted}`}>
+        <span>
+          {rows.length === 0 ? "0 pages" : `${(current - 1) * PAGE_SIZE + 1}–${Math.min(current * PAGE_SIZE, rows.length)} of ${rows.length}`}
+        </span>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)} className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700">
+              Previous
+            </button>
+            <span>
+              Page {current} of {totalPages}
+            </span>
+            <button type="button" disabled={current >= totalPages} onClick={() => setPage(current + 1)} className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700">
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean }) {
+  const findings = useMemo(() => computeFindings(audit), [audit]);
+  const summary = useMemo(() => summarise(audit, findings), [audit, findings]);
+  const { discovery } = audit;
+  const host = new URL(discovery.origin).host;
+
+  const statusLabel = live
+    ? "In progress"
+    : audit.status === "complete"
+      ? "Complete"
+      : audit.status === "cancelled"
+        ? "Stopped early"
+        : "Failed";
+
+  return (
+    <div className="mt-8">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">{host}</h2>
+          <p className={`mt-0.5 text-sm ${muted}`}>
+            {new Date(audit.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} ·{" "}
+            {formatDuration(audit.startedAt, audit.finishedAt)} · {statusLabel}
+          </p>
+        </div>
+      </div>
+
+      {audit.error && (
+        <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {audit.error} {audit.pages.length > 0 && "Results below cover what was crawled before it stopped."}
+        </p>
+      )}
+      {audit.capReached && (
+        <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          Stopped at the {audit.pageLimit}-page limit. The site has more pages than were crawled, so
+          site-wide findings (orphans, sitemap gaps) are provisional.
+        </p>
+      )}
+
+      {/* Summary tiles */}
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <StatTile label="Pages crawled" value={summary.pagesCrawled} />
+        <StatTile label="Loading fine" value={summary.okPages} />
+        <StatTile label="Failed to load" value={summary.brokenPages} tone={summary.brokenPages ? "bad" : undefined} />
+        <StatTile label="Redirected" value={summary.redirectedPages} tone={summary.redirectedPages ? "warn" : undefined} />
+        <StatTile label="In sitemap" value={discovery.sitemap.found ? summary.sitemapUrls : "None"} tone={discovery.sitemap.found ? undefined : "warn"} />
+        <StatTile label="Median response" value={summary.medianTimeMs === null ? "—" : `${summary.medianTimeMs} ms`} />
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {/* Findings */}
+        <section className="lg:col-span-2">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Findings</h2>
+            <div className={`flex gap-3 text-xs ${muted}`}>
+              <span><span className="font-medium text-red-600 dark:text-red-400">{summary.errors}</span> errors</span>
+              <span><span className="font-medium text-amber-600 dark:text-amber-400">{summary.warnings}</span> warnings</span>
+              <span><span className="font-medium text-sky-600 dark:text-sky-400">{summary.notices}</span> notices</span>
+            </div>
+          </div>
+          <div className={`mt-3 ${card}`}>
+            {findings.length === 0 ? (
+              <p className={`px-4 py-6 text-center text-sm ${muted}`}>
+                {live ? "Nothing yet — findings appear as pages are crawled." : "No issues found in the pages crawled."}
+              </p>
+            ) : (
+              findings.map((f) => <FindingItem key={f.id} finding={f} origin={discovery.origin} />)
+            )}
+          </div>
+        </section>
+
+        {/* Crawl setup */}
+        <section>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Crawl setup</h2>
+          <dl className={`mt-3 divide-y divide-zinc-100 text-sm dark:divide-zinc-900 ${card}`}>
+            <div className="px-4 py-3">
+              <dt className={`text-xs ${muted}`}>Start URL</dt>
+              <dd className="mt-0.5 break-all text-zinc-900 dark:text-zinc-50">{discovery.startUrl}</dd>
+            </div>
+            <div className="px-4 py-3">
+              <dt className={`text-xs ${muted}`}>robots.txt</dt>
+              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">
+                {discovery.robots.found
+                  ? `Found · ${discovery.robots.rules.length} rule${discovery.robots.rules.length === 1 ? "" : "s"} apply to us`
+                  : discovery.robots.error ?? "Not found"}
+                {discovery.robots.crawlDelay !== null && ` · crawl delay ${discovery.robots.crawlDelay}s`}
+              </dd>
+            </div>
+            <div className="px-4 py-3">
+              <dt className={`text-xs ${muted}`}>XML sitemap</dt>
+              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">
+                {discovery.sitemap.found
+                  ? `${discovery.sitemap.urls.length} URLs from ${discovery.sitemap.sources.length} file${discovery.sitemap.sources.length === 1 ? "" : "s"}${discovery.sitemap.truncated ? " (partly read)" : ""}`
+                  : "Not found"}
+                {discovery.sitemap.offSiteCount > 0 && (
+                  <span className={`block text-xs ${muted}`}>{discovery.sitemap.offSiteCount} off-site URLs ignored</span>
+                )}
+              </dd>
+            </div>
+            <div className="px-4 py-3">
+              <dt className={`text-xs ${muted}`}>Page limit</dt>
+              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">{audit.pageLimit}</dd>
+            </div>
+          </dl>
+          <p className={`mt-3 text-xs leading-relaxed ${muted}`}>
+            Pages are read as plain HTML, the way most search crawlers first see them. Links that only
+            appear after JavaScript runs in the browser won&apos;t be found.
+          </p>
+        </section>
+      </div>
+
+      <Inventory audit={audit} />
+    </div>
+  );
+}

@@ -19,7 +19,7 @@ export default async function AdminShellLayout({
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-6">
             <Link
               href="/admin"
@@ -36,6 +36,12 @@ export default async function AdminShellLayout({
                 className="hover:text-zinc-900 dark:hover:text-zinc-50"
               >
                 Posts
+              </Link>
+              <Link
+                href="/admin/seo"
+                className="hover:text-zinc-900 dark:hover:text-zinc-50"
+              >
+                SEO
               </Link>
             </nav>
           </div>

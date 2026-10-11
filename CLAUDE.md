@@ -632,6 +632,112 @@ Resolved `tm-1786201478243` ("Add search to post list view") — its open scopin
 
 **Verified against real Velocity B content** (39 posts via `GITHUB_TOKEN`, not fixtures) using a locally-generated valid session token (same HMAC scheme as `src/lib/auth/session.ts`, local-only secret, never touching live credentials) to exercise the real password-gated route rather than stub around auth. Confirmed: unfiltered list (39 posts, page 1 of 2), a real search term matching an actual post title, a nonsense term producing the empty state, and pagination correctly preserving `q`.
 
+## SEO audit tool (2026-10-11)
+
+A site-audit tool at `/admin/seo`, scoped with Ian 2026-10-11. CTRL board
+"Mediasurface SEO" (`board-1787236546549`), tracking task
+`tm-1791737751723`. Phase 1 (discovery + on-screen report) built same day.
+
+**Scope decisions:**
+- Behind the existing admin password. The page is gated by `src/proxy.ts`
+  like the rest of `/admin`; the API routes live at `/api/seo/*` (outside
+  the proxy matcher, deliberately — the proxy answers with a login
+  redirect, which is wrong for `fetch()`), and each route checks the same
+  `ms_session` cookie itself via `src/lib/seo/route-auth.ts`, returning a
+  plain 401.
+- Audits **any URL, including client sites** (e.g. contentbloom.com) — not
+  just Ian's configured sites. This is what makes the SSRF guard and crawl
+  politeness non-negotiable (below).
+- **500-page cap** per audit (`PAGE_LIMIT` in `src/lib/seo/types.ts`).
+- **No persistence in v1.** Results live in the browser tab. Output is an
+  on-screen report; a Mediasurface-branded PDF download is a later phase,
+  and saved history (phase 4) is where the deferred Postgres/Vercel Blob
+  decision gets triggered. No CSV. **Never write audit data to GitHub** —
+  every repo write triggers a Vercel deploy.
+- External links (phase 3): check for broken only, nothing more.
+
+**Architecture — browser-orchestrated crawl, server-side fetching.** The
+page (`src/lib/seo/crawler.ts`, run from
+`src/app/admin/(protected)/seo/seo-audit.tsx`) holds the queue, visited set
+and results in memory, and asks the server to fetch pages in batches of 10
+via `POST /api/seo/fetch` (5 concurrent per batch, one batch in flight,
+300ms between batches). Each serverless call stays well under its
+`maxDuration`, and no storage is needed. `POST /api/seo/discover` runs
+first: resolves the start URL (scope = wherever it actually lands, e.g.
+apex → www), reads robots.txt and up to 50 sitemap files / 5,000 URLs
+(sitemap indexes and `.xml.gz` handled).
+
+**`AuditResult` (`src/lib/seo/types.ts`) is the single data contract** —
+plain serialisable JSON. The report renders from it, the later PDF renders
+from it, phase 4 would store it. Findings (`src/lib/seo/findings.ts`) are
+*derived* from it, never stored, so the stored shape stays just raw crawl
+data.
+
+**SSRF guard (`src/lib/seo/fetch-page.ts`):** http/https only; every
+resolved address checked against private/loopback/link-local (incl.
+169.254.169.254)/CGNAT/multicast/reserved ranges via `node:net` BlockList.
+The check runs **inside the connection's own DNS lookup** (undici `Agent`
+with `connect.lookup`), so the address validated is the address connected
+to — DNS rebinding is caught, not just a pre-check. IP-literal hostnames
+skip DNS so they're checked up front. Redirects followed manually (max 10),
+every hop re-validated. 15s deadline per URL, 5MB body cap, non-HTML bodies
+not read. `/api/seo/fetch` also refuses any URL not on the audited site —
+it's a crawler, not a general proxy. Verified refusals: 127.0.0.1,
+localhost, 169.254.169.254, 10.0.0.1, `0x7f000001`, `file://`.
+`undici` is pinned to v7 (v8 needs Node ≥22.19).
+
+**Politeness:** identifiable UA `MediasurfaceSEO/1.0 (+https://mediasurface.app)`;
+robots.txt rules honoured (RFC 9309 matching — our group else `*`,
+wildcards, longest match wins, Allow wins ties), disallowed URLs listed as
+a finding rather than fetched; `Crawl-delay` honoured (one page at a time,
+delay capped at 10s).
+
+**Crawl order and URL identity:** breadth-first from the start URL, so
+depth is accurate; sitemap-only URLs are fetched once links run out
+(depth `null`). URL de-dupe key (`urlKey()` in `src/lib/seo/urls.ts`)
+treats www/apex, http/https, trailing slash and tracking params as the
+same page. Because of that, "sitemap uses the wrong host" is checked
+directly against the sitemap URLs rather than by fetching both variants.
+
+**Bug found during verification (fixed before push):** the first version
+topped up a batch with sitemap URLs whenever the link queue was short —
+including the very first batch, before the homepage's links had been
+read. Pages the homepage linked to were then recorded as sitemap-only
+(depth null) and Velocity B showed 36 of 74 pages as unlinked. Fix:
+sitemap-only URLs are never mixed into a batch with link-discovered
+pages. Depth distribution after the fix: 0:1, 1:11, 2:25, 3:34, 4:2,
+null:1 (the one genuine orphan).
+
+**Noise decisions:** "missing from sitemap" ignores URLs with a query
+string (filters like `?tag=`); "linked redirects" only counts pages
+actually reached by a link — a sitemap-only URL that redirects is reported
+under the sitemap findings instead.
+
+**Known limitation, stated in the UI:** pages are read as plain HTML (no
+headless browser), so links that only appear after client-side JavaScript
+runs aren't found. Fine for server-rendered sites (all of Ian's), worth
+knowing for some client sites.
+
+**Verified locally** (`next build`, `next start`, real crawls through the
+real API routes with a locally-signed session token; UI exercised in
+headless Chromium, light/dark, 1280px and 390px, no console errors):
+- unauthenticated: page → login redirect; both API routes → 401.
+- mediasurface.app from `/blog`: 18 pages, all 200; no robots.txt or
+  sitemap (correctly reported). The homepage is still the Next.js
+  starter with no internal links, so crawling from `/` finds 1 page —
+  correct behaviour, not a bug.
+- velocity-b.com: 74 pages, ~5s. Real findings: `/free-b2b-growth-guide`
+  404s (linked from a blog post); all 54 sitemap URLs use the apex host
+  while the site serves from www; `/contact-us` redirects; `/meet-ian` is
+  an orphan; author archives and blog pagination aren't in the sitemap.
+- contentbloom.com: hit the 500 cap in ~70s; ~220 sitemap URLs (date
+  archives, author pages) 301 to the homepage — confirmed with a browser
+  user agent too, so it's the site, not bot-blocking.
+
+**Phase 2 will catch:** every mediasurface.app page has the title "Create
+Next App" (duplicate titles — not fixed here, it's the sandbox's own
+layout metadata).
+
 
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
