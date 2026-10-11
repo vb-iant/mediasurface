@@ -10,6 +10,9 @@ import { isNoindex, onPageFindings } from "./checks/on-page";
 import { linkFindings } from "./checks/links";
 import { redirectsToHome, structureFindings } from "./checks/structure";
 import { schemaFindings } from "./checks/schema";
+import { hygieneFindings } from "./checks/hygiene";
+import { performanceFindings } from "./checks/performance";
+import { aiFindings, hostFindings } from "./checks/ai-and-hosts";
 import type { Category, Finding, Severity } from "./checks/types";
 
 export type { Category, Finding, LinkSource, Severity } from "./checks/types";
@@ -244,6 +247,10 @@ export function computeFindings(audit: AuditResult): Finding[] {
   findings.push(...onPageFindings(audit));
   findings.push(...structureFindings(audit));
   findings.push(...schemaFindings(audit));
+  findings.push(...hygieneFindings(audit));
+  findings.push(...performanceFindings(audit));
+  findings.push(...aiFindings(audit));
+  findings.push(...hostFindings(audit));
 
   const severityOrder: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
   const categoryOrder = Object.fromEntries(CATEGORY_ORDER.map((c, i) => [c, i])) as Record<Category, number>;

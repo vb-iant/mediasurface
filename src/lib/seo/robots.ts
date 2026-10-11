@@ -11,7 +11,7 @@
 import type { RobotsGroupRule } from "./types";
 import { USER_AGENT_TOKEN } from "./types";
 
-interface ParsedGroup {
+export interface ParsedGroup {
   agents: string[];
   rules: RobotsGroupRule[];
   crawlDelay: number | null;
@@ -21,6 +21,24 @@ export interface ParsedRobots {
   sitemaps: string[];
   rules: RobotsGroupRule[];
   crawlDelay: number | null;
+  /** Every group, so rules can be evaluated for other user agents too (AI crawler panel). */
+  groups: ParsedGroup[];
+}
+
+/**
+ * Pick the rules that apply to a user-agent token: groups that name it,
+ * else the `*` group. `explicit` says whether the site named this agent.
+ * Matching is case-insensitive on the product token ("GPTBot/1.1" → "gptbot").
+ */
+export function rulesFor(groups: ParsedGroup[], token: string): { rules: RobotsGroupRule[]; crawlDelay: number | null; explicit: boolean } {
+  const t = token.toLowerCase();
+  const named = groups.filter((g) => g.agents.some((a) => a !== "*" && a.split("/")[0].trim() === t));
+  const chosen = named.length > 0 ? named : groups.filter((g) => g.agents.includes("*"));
+  return {
+    rules: chosen.flatMap((g) => g.rules),
+    crawlDelay: chosen.find((g) => g.crawlDelay !== null)?.crawlDelay ?? null,
+    explicit: named.length > 0,
+  };
 }
 
 export function parseRobots(text: string): ParsedRobots {
@@ -65,15 +83,8 @@ export function parseRobots(text: string): ParsedRobots {
     }
   }
 
-  const token = USER_AGENT_TOKEN.toLowerCase();
-  const ours = groups.filter((g) => g.agents.some((a) => a !== "*" && token.includes(a)));
-  const chosen = ours.length > 0 ? ours : groups.filter((g) => g.agents.includes("*"));
-
-  return {
-    sitemaps,
-    rules: chosen.flatMap((g) => g.rules),
-    crawlDelay: chosen.find((g) => g.crawlDelay !== null)?.crawlDelay ?? null,
-  };
+  const ours = rulesFor(groups, USER_AGENT_TOKEN);
+  return { sitemaps, rules: ours.rules, crawlDelay: ours.crawlDelay, groups };
 }
 
 function ruleToRegExp(path: string): RegExp {

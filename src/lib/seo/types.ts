@@ -48,6 +48,8 @@ export interface FetchedPage {
   assetLinks: string[];
   /** URL → its link text (first occurrence; image alt or "Image" for <img>). */
   linkText: Record<string, string>;
+  /** Content-Encoding of the final response (gzip, br…), null if uncompressed. */
+  contentEncoding: string | null;
   /** On-page SEO data (phase 2). Null for non-HTML or failed responses. */
   onPage: OnPageData | null;
 }
@@ -76,6 +78,15 @@ export interface OnPageData {
   imagesMissingAlt: number;
   /** Phase 4: structured data found on the page. */
   structuredData: StructuredDataInfo;
+  /** Phase 4: <meta name="viewport"> present. */
+  hasViewport: boolean;
+  /** Phase 4: http:// subresources on an https page (first few) and total count. */
+  mixedContent: string[];
+  mixedContentCount: number;
+  /** Phase 4: words of visible body text (nav/header/footer/scripts excluded). */
+  wordCount: number;
+  /** Phase 4: <link rel="alternate" hreflang> entries. */
+  hreflang: { lang: string; href: string }[];
 }
 
 export interface StructuredDataInfo {
@@ -143,6 +154,39 @@ export interface DiscoveryResult {
   origin: string;
   robots: RobotsInfo;
   sitemap: SitemapInfo;
+  /** Phase 4: what robots.txt says to each AI crawler, plus llms.txt. */
+  ai: AiAccessInfo;
+  /** Phase 4: how http/https and www/non-www variants of the homepage behave. */
+  hosts: HostVariant[];
+}
+
+export interface AiBotAccess {
+  token: string;
+  /** Allowed to crawl the site root. */
+  allowedRoot: boolean;
+  /** Allowed to crawl the start page (often the same as root). */
+  allowedStart: boolean;
+  /** robots.txt names this bot specifically (rather than falling back to `*`). */
+  explicit: boolean;
+}
+
+export interface AiAccessInfo {
+  bots: AiBotAccess[];
+  llmsTxt: { url: string; status: "found" | "missing" | "html" | "error"; detail: string | null };
+}
+
+export interface HostVariant {
+  /** e.g. http://example.com/ */
+  url: string;
+  /** Where it ended up. */
+  finalUrl: string;
+  status: number;
+  hops: number;
+  error: string | null;
+  /** True if it lands on the origin the audit is scoped to. */
+  reachesCanonical: boolean;
+  /** HSTS header on the final response, if any. */
+  hsts: string | null;
 }
 
 export interface AuditResult {
@@ -178,6 +222,10 @@ export interface LinkCheckResult {
   verdict: LinkVerdict;
   /** Short human reason, e.g. "HTTP 404", "Domain not found", "Blocked (403)". */
   reason: string;
+  /** Phase 4: from response headers when the server sends them (files/images). */
+  contentLength?: number | null;
+  contentType?: string | null;
+  cacheControl?: string | null;
 }
 
 export interface LinkCheckState {

@@ -134,6 +134,15 @@ export function extractHtml(
 
   const onPage: OnPageData = {
     structuredData: extractStructuredData($),
+    hasViewport: $("meta[name]").filter((_, el) => ($(el).attr("name") ?? "").toLowerCase() === "viewport").length > 0,
+    ...mixedContent($, pageUrl, base),
+    wordCount: countWords($),
+    hreflang: $("link[rel][hreflang]")
+      .filter((_, el) => ($(el).attr("rel") ?? "").toLowerCase().split(/\s+/).includes("alternate"))
+      .map((_, el) => ({ lang: ($(el).attr("hreflang") ?? "").trim(), href: resolve($(el).attr("href"), base) ?? "" }))
+      .get()
+      .filter((h) => h.lang && h.href)
+      .slice(0, 50),
     titleCount: titles.length,
     metaDescription: clean(descriptions.first().attr("content")),
     metaDescriptionCount: descriptions.length,
@@ -212,4 +221,29 @@ function extractStructuredData($: cheerio.CheerioAPI): StructuredDataInfo {
     ),
   ].slice(0, 20);
   return { items: items.slice(0, 50), parseErrors, microdataTypes, rdfaCount: $("[typeof]").length };
+}
+
+/** http:// subresources on an https page — browsers block or warn on these. */
+function mixedContent($: cheerio.CheerioAPI, pageUrl: string, base: string): { mixedContent: string[]; mixedContentCount: number } {
+  if (!pageUrl.startsWith("https:")) return { mixedContent: [], mixedContentCount: 0 };
+  const found = new Set<string>();
+  const check = (raw: string | undefined) => {
+    const abs = resolve(raw, base);
+    if (abs && abs.startsWith("http:")) found.add(abs);
+  };
+  $("img[src], script[src], iframe[src], video[src], audio[src], source[src], embed[src]").each((_, el) => check($(el).attr("src")));
+  $("link[href]").each((_, el) => {
+    const rel = ($(el).attr("rel") ?? "").toLowerCase();
+    if (/stylesheet|icon|preload|manifest/.test(rel)) check($(el).attr("href"));
+  });
+  const all = [...found];
+  return { mixedContent: all.slice(0, 5), mixedContentCount: all.length };
+}
+
+/** Visible body words, ignoring scripts, styles and site chrome (nav/header/footer/aside). */
+function countWords($: cheerio.CheerioAPI): number {
+  const body = $("body").clone();
+  body.find("script, style, noscript, template, svg, nav, header, footer, aside, form").remove();
+  const text = body.text().replace(/\s+/g, " ").trim();
+  return text ? text.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w)).length : 0;
 }

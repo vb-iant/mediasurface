@@ -68,6 +68,7 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     externalLinks,
     assetLinks,
     linkText,
+    contentEncoding: raw.headers["content-encoding"] ?? null,
     onPage,
   };
 }

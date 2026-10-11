@@ -13,6 +13,7 @@ import {
   type Severity,
 } from "@/lib/seo/findings";
 import { urlKey } from "@/lib/seo/urls";
+import { AI_BOTS, AI_GROUP_LABELS, type AiBotGroup } from "@/lib/seo/ai-bots";
 import type { AuditPage, AuditResult } from "@/lib/seo/types";
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; label: string; dot: string }> = {
@@ -240,6 +241,11 @@ function PageDetails({ page, issues }: { page: AuditPage; issues: PageIssue[] })
             value={op.imageCount ? `${op.imageCount} total, ${op.imagesMissingAlt} without alt text` : "None"}
           />
           <Field label="Links" value={`${page.internalLinks.length} internal, ${page.externalLinkCount} external`} />
+          <Field label="Main text" value={op.wordCount !== undefined ? `${op.wordCount.toLocaleString("en-GB")} words` : null} />
+          <Field
+            label="Mobile viewport · compression"
+            value={`${op.hasViewport === false ? "No viewport tag" : "Viewport set"} · ${page.contentEncoding ? page.contentEncoding : "uncompressed"}`}
+          />
           <Field
             label="Structured data"
             value={
@@ -490,6 +496,70 @@ function Inventory({ audit, findings }: { audit: AuditResult; findings: Finding[
   );
 }
 
+function Chip({ ok, children }: { ok: boolean | null; children: React.ReactNode }) {
+  const cls =
+    ok === null
+      ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+      : ok
+        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+  return <span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>;
+}
+
+/** Report-only panel (Ian's decision): allowed/blocked per AI bot, no severity. */
+function AiPanel({ audit }: { audit: AuditResult }) {
+  const ai = audit.discovery.ai;
+  if (!ai) return null;
+  const groups: AiBotGroup[] = ["search", "user", "training"];
+  return (
+    <section className="mt-6">
+      <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">AI crawler access</h2>
+      <div className={`mt-3 text-sm ${card}`}>
+        {groups.map((g) => (
+          <div key={g} className="border-b border-zinc-100 px-4 py-3 last:border-0 dark:border-zinc-900">
+            <div className={`text-xs ${muted}`}>{AI_GROUP_LABELS[g]}</div>
+            <ul className="mt-1.5 space-y-1">
+              {AI_BOTS.filter((b) => b.group === g).map((bot) => {
+                const access = ai.bots.find((b) => b.token === bot.token);
+                if (!access) return null;
+                const blocked = !access.allowedRoot || !access.allowedStart;
+                return (
+                  <li key={bot.token} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 text-zinc-900 dark:text-zinc-50" title={`${bot.vendor} — ${bot.purpose}`}>
+                      <span className="block truncate">
+                        {bot.token} <span className={`text-xs ${muted}`}>· {bot.vendor}</span>
+                      </span>
+                      {bot.mayIgnoreRobots && (
+                        <span className={`block text-xs ${muted}`}>{bot.vendor} says it may ignore robots.txt</span>
+                      )}
+                    </span>
+                    <Chip ok={!blocked}>
+                      {blocked ? (access.allowedRoot ? "Start page blocked" : "Blocked") : "Allowed"}
+                    </Chip>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <span className="text-zinc-900 dark:text-zinc-50">
+            llms.txt
+            {ai.llmsTxt.detail && <span className={`block text-xs ${muted}`}>{ai.llmsTxt.detail}</span>}
+          </span>
+          <Chip ok={ai.llmsTxt.status === "found" ? true : null}>
+            {ai.llmsTxt.status === "found" ? "Found" : ai.llmsTxt.status === "html" ? "Not a real file" : ai.llmsTxt.status === "error" ? "Couldn't read" : "None"}
+          </Chip>
+        </div>
+      </div>
+      <p className={`mt-2 text-xs leading-relaxed ${muted}`}>
+        From robots.txt. Blocking training bots is a legitimate choice; blocking AI search and answer bots means the
+        site can&apos;t be cited in AI answers.
+      </p>
+    </section>
+  );
+}
+
 export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean }) {
   const findings = useMemo(() => computeFindings(audit), [audit]);
   const summary = useMemo(() => summarise(audit, findings), [audit, findings]);
@@ -618,6 +688,33 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
                       }`}
               </dd>
             </div>
+            {discovery.hosts?.length > 0 && (
+              <div className="px-4 py-3">
+                <dt className={`text-xs ${muted}`}>Site addresses</dt>
+                <dd className="mt-1 space-y-1">
+                  {discovery.hosts.map((h) => {
+                    const isMain = new URL(h.url).origin === discovery.origin;
+                    const ok = isMain ? !h.error && h.status < 400 : h.reachesCanonical;
+                    return (
+                      <div key={h.url} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate text-zinc-700 dark:text-zinc-300">{h.url.replace(/\/$/, "")}</span>
+                        <Chip ok={h.error && /domain not found/i.test(h.error) ? null : ok}>
+                          {isMain
+                            ? "Main address"
+                            : h.error
+                              ? /domain not found/i.test(h.error)
+                                ? "No DNS"
+                                : "Fails"
+                              : h.reachesCanonical
+                                ? `Redirects${h.hops > 1 ? ` (${h.hops} hops)` : ""}`
+                                : "Doesn't redirect"}
+                        </Chip>
+                      </div>
+                    );
+                  })}
+                </dd>
+              </div>
+            )}
             <div className="px-4 py-3">
               <dt className={`text-xs ${muted}`}>Page limit</dt>
               <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">{audit.pageLimit.toLocaleString("en-GB")}</dd>
@@ -627,6 +724,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
             Pages are read as plain HTML, the way most search crawlers first see them. Links that only
             appear after JavaScript runs in the browser won&apos;t be found.
           </p>
+          <AiPanel audit={audit} />
         </section>
       </div>
 

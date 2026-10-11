@@ -234,7 +234,16 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
 
       const contentType = res.headers.get("content-type");
       const headers: Record<string, string> = {};
-      for (const name of ["x-robots-tag", "content-type", "content-length", "last-modified"]) {
+      for (const name of [
+        "x-robots-tag",
+        "content-type",
+        "content-length",
+        "last-modified",
+        "content-encoding",
+        "cache-control",
+        "expires",
+        "strict-transport-security",
+      ]) {
         const v = res.headers.get(name);
         if (v) headers[name] = v;
       }

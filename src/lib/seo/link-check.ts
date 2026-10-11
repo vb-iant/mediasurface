@@ -88,7 +88,23 @@ export async function checkLink(url: string, kind: LinkCheckResult["kind"]): Pro
     }
   }
   const { verdict, reason } = classify(r);
-  return { url, kind, status: r.status, finalUrl: r.finalUrl, verdict, reason };
+  const len = Number(r.headers["content-length"]);
+  return {
+    url,
+    kind,
+    status: r.status,
+    finalUrl: r.finalUrl,
+    verdict,
+    reason,
+    // Sizes/caching only matter for the site's own files (image weight check).
+    ...(kind === "asset"
+      ? {
+          contentLength: Number.isFinite(len) && len > 0 ? len : null,
+          contentType: r.headers["content-type"] ?? null,
+          cacheControl: r.headers["cache-control"] ?? (r.headers["expires"] ? `expires ${r.headers["expires"]}` : null),
+        }
+      : {}),
+  };
 }
 
 /**

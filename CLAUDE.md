@@ -851,6 +851,14 @@ findings below shouldn't change):
   Notice: `/meet-alex` has only one internal link.
 - (Phase 4) With "Check external links" unticked: ~6s, 10 same-site
   files/images checked, the 404 still reported.
+- (Phase 4) AI crawlers: all 13 allowed, no AI warning; `/llms.txt`
+  missing (404). Site addresses: all four variants reach
+  `https://www.velocity-b.com`; `http://velocity-b.com` takes 2 hops
+  (notice); HSTS present. All pages Brotli-compressed (no compression
+  warning). Warning: 1 very large image (355 KB blog image); notice: 5
+  images re-checked every visit (`max-age=0, must-revalidate`, the
+  Next.js /public default). Notice: 4 thin pages (/contact,
+  /velocity-assessment, /meet-alex, /meet-ian).
 
 ### Phase 3: broken links (2026-10-11)
 
@@ -963,11 +971,50 @@ crawlers (`CATEGORY_LABELS` order = report order).
   summary of types used (notice), homepage without Organization/WebSite
   (notice), none anywhere (notice). Row details show each page's types.
 
+**Checks added (part 2):**
+- AI crawlers (`src/lib/seo/ai-bots.ts` + `checks/ai-and-hosts.ts`): bot
+  list checked against OpenAI / Anthropic / Perplexity docs on
+  2026-10-11 (sources in the file header — update there). Groups:
+  search (OAI-SearchBot, Claude-SearchBot, PerplexityBot), user-initiated
+  (ChatGPT-User, Claude-User, Perplexity-User — OpenAI and Perplexity say
+  theirs may ignore robots.txt), training (GPTBot, ClaudeBot,
+  Google-Extended, Applebot-Extended, CCBot, Meta-ExternalAgent,
+  Bytespider). `robots.ts` now keeps every group and `rulesFor()`
+  evaluates any user agent (product-token match, "GPTBot/1.1" →
+  "gptbot"). Discovery evaluates root + start page per bot and fetches
+  `/llms.txt`. Report: "AI crawler access" panel (no severity) + one
+  warning if search/user bots are blocked. Unit-tested with a crafted
+  robots.txt (grouped agents, versioned token, Allow exception, empty
+  Disallow) since neither test site blocks anything.
+- Host consistency (discovery requests http/https × apex/www): error for
+  variants that fail or land elsewhere, warning for variants serving a
+  duplicate copy, notice for multi-hop or missing DNS, notice for no HSTS.
+  "Site addresses" list in the Crawl setup panel.
+- Hygiene (`checks/hygiene.ts`, indexable pages only): no viewport
+  (warning), mixed content (warning), untidy URLs (notice), thin pages
+  under 200 words of main text (notice; nav/header/footer/forms excluded,
+  filtered/paginated listings skipped), hreflang invalid codes / missing
+  return links / broken alternates (warnings) and no x-default (notice).
+- Speed & weight (`checks/performance.ts`): image sizes come from the link
+  checker's own request (Content-Length) — images over 300 KB (warning),
+  150–300 KB (notice); images with no caching or under a day (notice,
+  worded accurately: browsers re-check, usually a quick 304); HTML over
+  10 KB served without gzip/Brotli (warning — undici sends
+  Accept-Encoding, verified: every page on both test sites came back
+  `br`).
+- Row details add main-text word count, viewport and compression.
+
 **Verified (part 1):** velocity-b.com baseline above. contentbloom.com: 342
 URLs redirect to the homepage (date/author archives, one linked from 389
 pages); 156 pages 4–5 clicks deep; 13 older Alchemy blog posts' Article
 markup lacks `image` (confirmed: no featured image, while normal posts
 include it).
+
+**Verified (part 2):** velocity-b.com baseline above. contentbloom.com: 70
+images over 300 KB incl. an 8.8 MB GIF and an 8.2 MB PNG (sizes confirmed
+with curl), 107 at 150–300 KB; 2 old posts load images over http from
+`content-bloom.com/staging` (confirmed); 7 URLs over 115 characters; no
+HSTS; `http://www` takes 2 hops; all 13 AI bots allowed; no llms.txt.
 
 
 

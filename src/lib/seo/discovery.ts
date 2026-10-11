@@ -7,9 +7,10 @@ import "server-only";
 import { gunzipSync } from "node:zlib";
 import * as cheerio from "cheerio";
 import { safeFetch } from "./fetch-page";
-import { parseRobots } from "./robots";
+import { isAllowedByRobots, parseRobots, rulesFor, type ParsedGroup } from "./robots";
+import { AI_BOTS } from "./ai-bots";
 import { isSameSite, urlKey } from "./urls";
-import type { DiscoveryResult, RobotsInfo, SitemapInfo } from "./types";
+import type { AiAccessInfo, DiscoveryResult, HostVariant, RobotsInfo, SitemapInfo } from "./types";
 
 const MAX_SITEMAP_FILES = 50;
 const MAX_SITEMAP_URLS = 5000;
@@ -17,11 +18,12 @@ const MAX_SITEMAP_BYTES = 10 * 1024 * 1024;
 
 export class DiscoveryError extends Error {}
 
-async function readRobots(origin: string): Promise<RobotsInfo> {
+async function readRobots(origin: string): Promise<RobotsInfo & { groups: ParsedGroup[] }> {
   const url = new URL("/robots.txt", origin).toString();
   const res = await safeFetch(url, { accept: "text/plain,*/*;q=0.5", maxBytes: 512 * 1024 });
 
-  const empty: RobotsInfo = {
+  const empty: RobotsInfo & { groups: ParsedGroup[] } = {
+    groups: [],
     url,
     found: false,
     status: res.status,
@@ -51,7 +53,65 @@ async function readRobots(origin: string): Promise<RobotsInfo> {
     rules: parsed.rules,
     crawlDelay: parsed.crawlDelay,
     error: null,
+    groups: parsed.groups,
   };
+}
+
+/** What robots.txt allows each AI crawler to do, plus whether /llms.txt exists. */
+async function readAiAccess(origin: string, startUrl: string, groups: ParsedGroup[]): Promise<AiAccessInfo> {
+  const root = new URL("/", origin).toString();
+  const bots = AI_BOTS.map((b) => {
+    const { rules, explicit } = rulesFor(groups, b.token);
+    return {
+      token: b.token,
+      allowedRoot: isAllowedByRobots(root, rules),
+      allowedStart: isAllowedByRobots(startUrl, rules),
+      explicit,
+    };
+  });
+
+  const url = new URL("/llms.txt", origin).toString();
+  const res = await safeFetch(url, { accept: "text/plain,text/markdown,*/*;q=0.5", maxBytes: 256 * 1024 });
+  let llmsTxt: AiAccessInfo["llmsTxt"];
+  if (res.error) llmsTxt = { url, status: "error", detail: res.error };
+  else if (res.status !== 200) llmsTxt = { url, status: "missing", detail: `HTTP ${res.status}` };
+  else if (/^\s*</.test(res.body.toString("utf8", 0, 200)) || /html/i.test(res.contentType ?? "")) {
+    llmsTxt = { url, status: "html", detail: "Returns an HTML page, not an llms.txt file" };
+  } else {
+    const lines = res.body.toString("utf8").split(/\r?\n/).filter((l) => l.trim()).length;
+    llmsTxt = { url, status: "found", detail: `${lines} line${lines === 1 ? "" : "s"}` };
+  }
+  return { bots, llmsTxt };
+}
+
+/**
+ * Request the homepage on http/https × apex/www. Each should land on the
+ * one origin the site serves from, ideally in one hop. 4 extra requests.
+ */
+async function readHostVariants(origin: string): Promise<HostVariant[]> {
+  const canonical = new URL(origin);
+  const apex = canonical.hostname.replace(/^www\./, "");
+  const variants = [`http://${apex}/`, `http://www.${apex}/`, `https://${apex}/`, `https://www.${apex}/`];
+  return Promise.all(
+    variants.map(async (url) => {
+      const r = await safeFetch(url, { wantBody: () => false, timeoutMs: 10_000 });
+      let reachesCanonical = false;
+      try {
+        reachesCanonical = new URL(r.finalUrl).origin === canonical.origin && !r.error && r.status < 400;
+      } catch {
+        /* leave false */
+      }
+      return {
+        url,
+        finalUrl: r.finalUrl,
+        status: r.status,
+        hops: r.redirectChain.length,
+        error: r.error,
+        reachesCanonical,
+        hsts: r.headers["strict-transport-security"] ?? null,
+      };
+    })
+  );
 }
 
 function decodeSitemapBody(body: Buffer): string {
@@ -165,8 +225,12 @@ export async function discover(startUrl: string): Promise<DiscoveryResult> {
   const resolvedStart = start.finalUrl;
   const origin = new URL(resolvedStart).origin;
 
-  const robots = await readRobots(origin);
-  const sitemap = await readSitemaps(origin, robots.sitemaps);
+  const { groups, ...robots } = await readRobots(origin);
+  const [sitemap, ai, hosts] = await Promise.all([
+    readSitemaps(origin, robots.sitemaps),
+    readAiAccess(origin, resolvedStart, groups),
+    readHostVariants(origin),
+  ]);
 
-  return { startUrl: resolvedStart, origin, robots, sitemap };
+  return { startUrl: resolvedStart, origin, robots, sitemap, ai, hosts };
 }
