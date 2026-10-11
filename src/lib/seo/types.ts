@@ -207,8 +207,90 @@ export interface AuditResult {
   /** Phase 3: status checks on external links and same-site files/images. */
   linkCheck: LinkCheckState;
   /** What the audit is doing right now (drives the progress label). */
-  stage: "crawling" | "rechecking" | "checking-links" | "done";
+  stage: "crawling" | "rechecking" | "checking-links" | "testing-speed" | "done";
+  /** Phase 5b: page speed on a sample of pages. Absent on older audits. */
+  speed?: SpeedState;
 }
+
+// ------------------------------------------------------------ phase 5b: page speed
+
+export type SpeedStrategy = "mobile" | "desktop";
+
+/** One Lighthouse run (PageSpeed Insights), trimmed to what the report uses. */
+export interface SpeedResult {
+  url: string;
+  strategy: SpeedStrategy;
+  /** 0–100, or null if Lighthouse couldn't score the page. */
+  score: number | null;
+  /** Lab metrics in ms (CLS unitless). */
+  lcp: number | null;
+  cls: number | null;
+  tbt: number | null;
+  fcp: number | null;
+  speedIndex: number | null;
+  /** Real-user data for this URL, when Google has enough of it. */
+  field: FieldMetrics | null;
+  /** Only filled for a diagnosis run. */
+  opportunities?: SpeedOpportunity[];
+  error: string | null;
+  fetchedAt: string;
+}
+
+export interface SpeedOpportunity {
+  id: string;
+  title: string;
+  description: string;
+  learnMore: string | null;
+  displayValue: string | null;
+  /** Lighthouse's estimated saving, per metric, in ms (CLS unitless). */
+  savings: { lcp?: number; fcp?: number; tbt?: number; cls?: number };
+  /** Worst offenders, e.g. the heaviest scripts or images. */
+  items: { url: string; detail: string | null }[];
+}
+
+/** Chrome UX Report p75 values (28-day real-user data). */
+export interface FieldMetrics {
+  lcp: number | null;
+  inp: number | null;
+  cls: number | null;
+  fcp: number | null;
+  ttfb: number | null;
+  /** Share of visits rated good, per metric (0–1). */
+  goodShare: { lcp?: number; inp?: number; cls?: number };
+  collectionPeriod: string | null;
+}
+
+export interface SpeedSampleEntry {
+  url: string;
+  /** Page type it stands for, e.g. "/blog/*". */
+  template: string;
+  /** How many indexable pages share that page type. */
+  templatePages: number;
+}
+
+export interface SpeedDiagnosis {
+  status: "running" | "done" | "error";
+  mobile: SpeedResult | null;
+  desktop: SpeedResult | null;
+  error: string | null;
+}
+
+export interface SpeedState {
+  status: "pending" | "running" | "complete" | "cancelled" | "skipped" | "error";
+  /** How many indexable pages the sample was drawn from. */
+  indexablePages: number;
+  sample: SpeedSampleEntry[];
+  results: SpeedResult[];
+  /** Site-wide real-user data (CrUX, origin level, phones). null = not looked up. */
+  field: { found: boolean; phone: FieldMetrics | null; desktop: FieldMetrics | null; error: string | null } | null;
+  diagnoses: Record<string, SpeedDiagnosis>;
+  error: string | null;
+}
+
+/** Sample 10% of indexable pages, at least 5 and at most 50 (Ian, 2026-10-11). */
+export const SPEED_SAMPLE_SHARE = 0.1;
+export const SPEED_SAMPLE_MIN = 5;
+export const SPEED_SAMPLE_MAX = 50;
 
 export type LinkVerdict = "ok" | "broken" | "unverified";
 

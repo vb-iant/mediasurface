@@ -12,6 +12,7 @@ import { redirectsToHome, structureFindings } from "./checks/structure";
 import { schemaFindings } from "./checks/schema";
 import { hygieneFindings } from "./checks/hygiene";
 import { performanceFindings } from "./checks/performance";
+import { speedFindings } from "./checks/speed";
 import { aiFindings, hostFindings } from "./checks/ai-and-hosts";
 import type { Category, Finding, Severity } from "./checks/types";
 
@@ -249,6 +250,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   findings.push(...schemaFindings(audit));
   findings.push(...hygieneFindings(audit));
   findings.push(...performanceFindings(audit));
+  findings.push(...speedFindings(audit));
   findings.push(...aiFindings(audit));
   findings.push(...hostFindings(audit));
 

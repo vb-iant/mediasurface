@@ -27,6 +27,8 @@ export function SeoHome() {
   const [pageLimit, setPageLimit] = useState<number>(PAGE_LIMIT);
   // Ticked by default (Ian, 2026-10-11).
   const [checkExternal, setCheckExternal] = useState(true);
+  // Phase 5b — also ticked by default; untick for a quicker audit.
+  const [checkSpeed, setCheckSpeed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const running = audits.find(isActive);
 
@@ -37,7 +39,7 @@ export function SeoHome() {
       return;
     }
     try {
-      const id = startAudit(url, { pageLimit, checkExternal });
+      const id = startAudit(url, { pageLimit, checkExternal, checkSpeed });
       router.push(`/admin/seo/audit/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -88,6 +90,16 @@ export function SeoHome() {
           />
           Check external links
         </label>
+        <label className="flex shrink-0 cursor-pointer items-center gap-2 px-1 text-sm text-zinc-700 dark:text-zinc-300">
+          <input
+            type="checkbox"
+            checked={checkSpeed}
+            onChange={(e) => setCheckSpeed(e.target.checked)}
+            disabled={!!running}
+            className="h-4 w-4 rounded border-zinc-300 accent-zinc-900 dark:accent-zinc-50"
+          />
+          Test page speed
+        </label>
         <button
           type="submit"
           disabled={!!running || !hydrated}
@@ -109,7 +121,10 @@ export function SeoHome() {
           sooner. You can move around the admin while it runs — just keep this tab open.{" "}
           {checkExternal
             ? "External links are checked as pages are crawled, which can add a couple of minutes on link-heavy sites."
-            : "External links won't be checked (this site's own pages, files and images still are)."}
+            : "External links won't be checked (this site's own pages, files and images still are)."}{" "}
+          {checkSpeed
+            ? "Page speed is tested on a sample of pages afterwards — a few more minutes."
+            : "Page speed won't be tested (you can run it later from the audit)."}
         </p>
       )}
 
@@ -159,6 +174,7 @@ function AuditRow({ record }: { record: AuditRecord }) {
           {new Date(record.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} ·{" "}
           {(s?.pages ?? pages).toLocaleString("en-GB")} pages · up to {record.options.pageLimit.toLocaleString("en-GB")}
           {!record.options.checkExternal && " · external links not checked"}
+          {record.options.checkSpeed === false && " · no page speed"}
         </span>
       </Link>
       {s && (

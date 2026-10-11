@@ -1067,6 +1067,58 @@ completion restores it; reload mid-crawl (contentbloom.com) → Stopped
 with the reason shown; a new tab sees no audits and an audit URL shows
 "isn't available".
 
+### Phase 5b: page speed (2026-10-12)
+
+Decisions (Ian, 2026-10-11): speed-test **a sample**, not every page —
+10% of indexable pages, **min 5, max 50** (`SPEED_SAMPLE_*` in
+`types.ts`), spread across page types, homepage always, **mobile only**.
+Site score = **median** Lighthouse performance score + median LCP / CLS /
+TBT. Real-user data (Chrome UX Report) shown **separately**. Per-page
+**"Run speed diagnosis"** = mobile + desktop runs with what to fix. A
+"Test page speed" checkbox on the form, ticked by default (same pattern
+as external links); a skipped or stopped run can be started later from
+the Page speed stage.
+
+- Server: `src/lib/seo/pagespeed.ts` (server-only; reads
+  `PAGESPEED_API_KEY`) → `POST /api/seo/speed` (one Lighthouse run per
+  request, `diagnose` adds opportunities) and `POST /api/seo/field`
+  (CrUX origin data, phone + desktop; tries the www/apex twin if the main
+  origin has none). Same `ms_session` check as the other SEO routes.
+  Google fetches the pages, so the SSRF guard isn't involved.
+- Sampling + scoring are pure (`src/lib/seo/speed.ts`): page type =
+  parent path (`/blog/a-post` → `/blog/*`, top-level pages → `/*`,
+  homepage `/`); one page per type first (biggest types first), the rest
+  proportional to type size, spread evenly within a type. Indexable =
+  200, HTML, on-site, not noindex, no query string, one per final URL.
+- "What to fix" = Lighthouse 13 audits in the `insights` and
+  `diagnostics` groups with score < 0.9 (not informative/n.a.), sorted by
+  estimated LCP/FCP/TBT saving, top 5 offending resources each.
+- Runs in the session store after the crawl (`AuditResult.stage =
+  "testing-speed"`, `AuditResult.speed`), 4 Lighthouse runs at a time,
+  one retry per failed page; diagnoses are stored per URL in
+  `speed.diagnoses`. A reload during speed tests keeps the (finished)
+  crawl and marks speed as stopped. New category/stage "Page speed":
+  findings "Slow pages on mobile" (score < 50, warning), "Pages that
+  could be faster" (50–89, notice), "couldn't be tested" (notice),
+  real-visitor poor / needs-improvement (warning / notice).
+- **Lighthouse varies a lot between runs**: velocity-b.com's homepage
+  scored 59 (LCP 8.6s) on 2026-10-11 and 99–100 (LCP 1.5s) on
+  2026-10-12 — so the UI says small differences are noise, and the
+  known-answer baseline below deliberately has no speed numbers.
+
+**Verified** (local production build, real PSI/CrUX calls):
+- velocity-b.com: 64 indexable pages → 6 sampled across 6 page types,
+  ~25s; site score ~98; `/growth` the outlier (61, LCP 9s); no CrUX data
+  ("not enough real-visitor data" shown, not an error). Diagnosis on `/`:
+  mobile + desktop both ~100, render-blocking CSS, cache lifetimes,
+  legacy/unused JS listed with offending files.
+- contentbloom.com (500 cap, external links off): 204 indexable → 20
+  sampled, ~100s; site score 51, median LCP 24.5s (consistent with its
+  8 MB images); 9 slow pages; CrUX returned desktop CLS only (partial
+  data renders as "—" per missing metric).
+- bbc.co.uk via `/api/seo/field`: full phone + desktop field data.
+- No console errors; light/dark; 390px (table scrolls inside its card).
+
 ## Build status
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.

@@ -13,8 +13,9 @@ import type { AuditResult } from "@/lib/seo/types";
 import { summarise } from "@/lib/seo/findings";
 import { AI_BOTS } from "@/lib/seo/ai-bots";
 import { isImage } from "@/lib/seo/checks/performance";
+import { formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
 
-export type StageId = "discovery" | "crawl" | "links" | "onpage" | "structure" | "schema" | "performance";
+export type StageId = "discovery" | "crawl" | "links" | "onpage" | "structure" | "schema" | "performance" | "speed";
 export type StageStatus = "waiting" | "running" | "done" | "skipped" | "stopped";
 
 export interface StageMetric {
@@ -76,6 +77,12 @@ export const STAGES: StageDef[] = [
     blurb: "Image sizes, compression and caching",
     owns: (f) => f.category === "performance",
   },
+  {
+    id: "speed",
+    title: "Page speed",
+    blurb: "Lighthouse on a sample of pages, plus real-visitor data",
+    owns: (f) => f.category === "speed",
+  },
 ];
 
 export function stageById(id: string): StageDef | undefined {
@@ -94,6 +101,15 @@ export function stageStatus(
   switch (stage) {
     case "discovery":
       return "done";
+    case "speed": {
+      const sp = audit.speed;
+      if (!sp) return phase === "running" ? "waiting" : stopped ? "stopped" : "skipped";
+      if (sp.status === "running") return "running";
+      if (sp.status === "complete") return "done";
+      if (sp.status === "pending") return "waiting";
+      if (sp.status === "skipped") return "skipped";
+      return "stopped";
+    }
     case "links": {
       const lc = audit.linkCheck.status;
       if (lc === "complete") return "done";
@@ -106,7 +122,7 @@ export function stageStatus(
       if (phase === "running" && crawling) return "running";
       if (stopped) return "stopped";
       // Performance depends on image sizes from the post-crawl file checks.
-      if (stage === "performance" && phase === "running") return "running";
+      if (stage === "performance" && phase === "running" && audit.stage === "checking-links") return "running";
       return "done";
   }
 }
@@ -191,6 +207,33 @@ export function stageMetrics(stage: StageId, audit: AuditResult, findings: Findi
         { label: "Over 300 KB", value: n(count("images-heavy")), tone: count("images-heavy") ? "warn" : "good" },
         { label: "Largest image", value: biggest ? kb(biggest) : "—" },
         { label: "Uncompressed", value: n(count("html-uncompressed")), tone: count("html-uncompressed") ? "warn" : "good" },
+      ];
+    }
+    case "speed": {
+      const sp = audit.speed;
+      const tone = (r: Rating | null): StageMetric["tone"] => (r === "good" ? "good" : r === "ni" ? "warn" : r === "poor" ? "bad" : undefined);
+      if (!sp || sp.status === "skipped") {
+        return [
+          { label: "Site score", value: "—" },
+          { label: "Median LCP", value: "—" },
+          { label: "Real visitors", value: "—" },
+        ];
+      }
+      const site = siteSpeed(sp.results);
+      const phone = sp.field?.phone ?? sp.field?.desktop;
+      const worst = phone
+        ? (["lcp", "inp", "cls"] as const)
+            .map((m) => rate(m, phone[m]))
+            .reduce<Rating | null>((w, r) => (r === "poor" || w === "poor" ? "poor" : r === "ni" || w === "ni" ? "ni" : r ?? w), null)
+        : null;
+      return [
+        { label: "Site score", value: site.score === null ? "—" : String(site.score), tone: tone(rate("score", site.score)) },
+        { label: "Median LCP", value: formatMs(site.lcp), tone: tone(rate("lcp", site.lcp)) },
+        {
+          label: "Real visitors",
+          value: !sp.field ? "…" : !sp.field.found ? "No data" : worst === "good" ? "Good" : worst === "ni" ? "Needs work" : worst === "poor" ? "Poor" : "—",
+          tone: tone(worst),
+        },
       ];
     }
   }

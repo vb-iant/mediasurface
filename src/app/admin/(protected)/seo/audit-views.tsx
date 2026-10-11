@@ -25,6 +25,7 @@ import {
   formatDuration,
   muted,
 } from "./report";
+import { SpeedPanel } from "./speed-panel";
 import { STAGES, stageById, stageMetrics, stageStatus, type StageDef, type StageMetric, type StageStatus } from "./stages";
 
 // ------------------------------------------------------------ small pieces
@@ -200,18 +201,29 @@ function ProgressPanel({ record }: { record: AuditRecord }) {
   const expected = Math.min(record.options.pageLimit, fetched + record.queued);
   const lc = audit?.linkCheck;
   const stage = audit?.stage ?? "crawling";
-  const afterCrawl = stage === "checking-links" || stage === "rechecking";
+  const speedRun = stage === "testing-speed";
+  const afterCrawl = stage === "checking-links" || stage === "rechecking" || speedRun;
   const checked = lc?.results.length ?? 0;
   const linksTotal = lc?.total ?? 0;
-  const pct = afterCrawl ? Math.round((checked / Math.max(1, linksTotal)) * 100) : expected > 0 ? Math.round((fetched / expected) * 100) : 0;
+  const speedDone = audit?.speed?.results.length ?? 0;
+  const speedTotal = audit?.speed?.sample.length ?? 0;
+  const pct = speedRun
+    ? Math.round((speedDone / Math.max(1, speedTotal)) * 100)
+    : afterCrawl
+      ? Math.round((checked / Math.max(1, linksTotal)) * 100)
+      : expected > 0
+        ? Math.round((fetched / expected) * 100)
+        : 0;
   const discovering = record.phase === "discovering" || !audit;
   const label = discovering
     ? "Reading robots.txt, sitemaps and site addresses…"
-    : stage === "rechecking"
-      ? "Rechecking pages that failed…"
-      : stage === "checking-links"
-        ? "Checking this site's files and images, and any remaining links…"
-        : "Crawling pages and checking links as they're found…";
+    : speedRun
+      ? `Testing page speed on ${speedTotal} sample pages with Lighthouse…`
+      : stage === "rechecking"
+        ? "Rechecking pages that failed…"
+        : stage === "checking-links"
+          ? "Checking this site's files and images, and any remaining links…"
+          : "Crawling pages and checking links as they're found…";
   const latest = audit?.pages[audit.pages.length - 1];
   return (
     <div className={`mt-6 p-4 ${card}`}>
@@ -219,10 +231,12 @@ function ProgressPanel({ record }: { record: AuditRecord }) {
         <span className="font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
         {!discovering && (
           <span className={`tabular-nums ${muted}`}>
-            {afterCrawl
-              ? `${fetched.toLocaleString("en-GB")} pages crawled`
-              : `${fetched.toLocaleString("en-GB")} fetched · ${record.queued.toLocaleString("en-GB")} queued`}
-            {linksTotal > 0 && ` · ${checked.toLocaleString("en-GB")} of ${linksTotal.toLocaleString("en-GB")} links checked`}
+            {speedRun
+              ? `${speedDone} of ${speedTotal} pages tested · about 15s each, 4 at a time`
+              : afterCrawl
+                ? `${fetched.toLocaleString("en-GB")} pages crawled`
+                : `${fetched.toLocaleString("en-GB")} fetched · ${record.queued.toLocaleString("en-GB")} queued`}
+            {!speedRun && linksTotal > 0 && ` · ${checked.toLocaleString("en-GB")} of ${linksTotal.toLocaleString("en-GB")} links checked`}
           </span>
         )}
       </div>
@@ -374,7 +388,8 @@ export function StageDetail({ id, stageId }: { id: string; stageId: string }) {
             <p className={`text-sm ${muted}`}>{stage.blurb}</p>
             <StageBadge status={status} />
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          {/* Page speed shows its own, fuller score panel instead. */}
+          <div className={`mt-3 grid grid-cols-3 gap-3 ${stage.id === "speed" ? "hidden" : ""}`}>
             {stageMetrics(stage.id, audit, findings).map((m) => (
               <div key={m.label} className={`min-w-0 px-4 py-3 ${card}`}>
                 <div className={`text-xs leading-tight ${muted}`}>{m.label}</div>
@@ -391,6 +406,7 @@ export function StageDetail({ id, stageId }: { id: string; stageId: string }) {
               </div>
             </div>
           ) : null}
+          {stage.id === "speed" && <SpeedPanel record={record} audit={audit} />}
 
           <section className="mt-8">
             <div className="flex flex-wrap items-baseline justify-between gap-2">

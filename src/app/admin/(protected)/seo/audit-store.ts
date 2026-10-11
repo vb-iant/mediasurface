@@ -25,13 +25,25 @@ import { useSyncExternalStore } from "react";
 import { runCrawl, crawlPacing } from "@/lib/seo/crawler";
 import type { LinkCheckItem } from "@/lib/seo/crawler";
 import { computeFindings, summarise } from "@/lib/seo/findings";
-import type { AuditResult, DiscoveryResult, FetchedPage, LinkCheckResult } from "@/lib/seo/types";
+import { pickSpeedSample } from "@/lib/seo/speed";
+import type {
+  AuditResult,
+  DiscoveryResult,
+  FetchedPage,
+  FieldMetrics,
+  LinkCheckResult,
+  SpeedResult,
+  SpeedState,
+  SpeedStrategy,
+} from "@/lib/seo/types";
 
 export type AuditPhase = "discovering" | "running" | "done" | "stopped" | "error";
 
 export interface AuditOptions {
   pageLimit: number;
   checkExternal: boolean;
+  /** Phase 5b: speed-test a sample of pages after the crawl. Missing on older records = true. */
+  checkSpeed?: boolean;
 }
 
 export interface AuditSummary {
@@ -232,6 +244,21 @@ async function hydrate() {
   }
   const restored = saved.map((r): AuditRecord => {
     if (!isActive(r)) return r;
+    if (r.audit?.status === "complete") {
+      // Reloaded during page speed tests: the crawl itself finished.
+      const speed = r.audit.speed && r.audit.speed.status === "running" ? { ...r.audit.speed, status: "cancelled" as const } : r.audit.speed;
+      const audit: AuditResult = { ...r.audit, stage: "done", speed };
+      const fixed: AuditRecord = {
+        ...r,
+        phase: "done",
+        audit,
+        queued: 0,
+        error: speed?.status === "cancelled" ? "The page was reloaded during the page speed tests, so they stopped early. Run them again from the Page speed stage." : r.error,
+        summary: summaryOf(audit),
+      };
+      void idbPut("audits", fixed);
+      return fixed;
+    }
     // The page that was running this audit is gone.
     const audit = r.audit ? { ...r.audit, status: "cancelled" as const, finishedAt: r.audit.finishedAt ?? new Date().toISOString() } : null;
     const fixed: AuditRecord = {
@@ -402,7 +429,127 @@ async function run(id: string, url: string, options: AuditOptions) {
     return;
   }
   const phase: AuditPhase = result.status === "cancelled" ? "stopped" : result.status === "error" ? "error" : "done";
-  finish({ phase, audit: result, summary: summaryOf(result) });
+  if (phase !== "done") {
+    finish({ phase, audit: result, summary: summaryOf(result) });
+    return;
+  }
+  if (options.checkSpeed === false) {
+    finish({ phase, audit: { ...result, speed: emptySpeed("skipped") }, summary: summaryOf(result) });
+    return;
+  }
+  patch(id, { audit: result, queued: 0 });
+  await runSpeed(id, controller.signal);
+  finish({ phase: "done", summary: summaryOf(get(id)?.audit ?? result) });
+}
+
+// ------------------------------------------------------------ page speed (5b)
+
+/** Lighthouse runs in flight at once. Each takes 10–25s on Google's side. */
+const SPEED_CONCURRENCY = 4;
+
+function emptySpeed(status: SpeedState["status"]): SpeedState {
+  return { status, indexablePages: 0, sample: [], results: [], field: null, diagnoses: {}, error: null };
+}
+
+/** Replace the audit's speed state (immutably) and save soon. */
+function updateSpeed(id: string, change: (s: SpeedState) => SpeedState, audit?: Partial<AuditResult>) {
+  const r = get(id);
+  if (!r?.audit) return;
+  const speed = change(r.audit.speed ?? emptySpeed("pending"));
+  patch(id, { audit: { ...r.audit, ...audit, speed } });
+  persistSoon(id);
+}
+
+async function speedRequest(url: string, strategy: SpeedStrategy, diagnose: boolean, signal?: AbortSignal): Promise<SpeedResult> {
+  const { result } = await postJson<{ result: SpeedResult }>("/api/seo/speed", { url, strategy, diagnose }, signal);
+  return result;
+}
+
+/** One retry for transient failures (Lighthouse occasionally fails a page). */
+async function speedWithRetry(url: string, strategy: SpeedStrategy, diagnose: boolean, signal?: AbortSignal): Promise<SpeedResult> {
+  const first = await speedRequest(url, strategy, diagnose, signal);
+  if (first.score !== null || /quota/i.test(first.error ?? "") || signal?.aborted) return first;
+  await new Promise((r) => setTimeout(r, 2000));
+  return speedRequest(url, strategy, diagnose, signal);
+}
+
+async function runSpeed(id: string, signal: AbortSignal) {
+  const audit = get(id)?.audit;
+  if (!audit) return;
+  const { indexablePages, sample } = pickSpeedSample(audit);
+  const diagnoses = audit.speed?.diagnoses ?? {};
+  updateSpeed(id, () => ({ ...emptySpeed("running"), indexablePages, sample, diagnoses }), { stage: "testing-speed" });
+
+  const field = postJson<{ found: boolean; phone: FieldMetrics | null; desktop: FieldMetrics | null; error: string | null }>(
+    "/api/seo/field",
+    { origin: audit.discovery.origin },
+    signal
+  )
+    .then((f) => updateSpeed(id, (s) => ({ ...s, field: { found: f.found, phone: f.phone, desktop: f.desktop, error: f.error } })))
+    .catch((err) => {
+      if (!signal.aborted) updateSpeed(id, (s) => ({ ...s, field: { found: false, phone: null, desktop: null, error: err instanceof Error ? err.message : String(err) } }));
+    });
+
+  let fatal: string | null = null;
+  const queue = sample.map((e) => e.url);
+  const worker = async () => {
+    while (queue.length && !signal.aborted && !fatal) {
+      const url = queue.shift()!;
+      try {
+        const result = await speedWithRetry(url, "mobile", false, signal);
+        updateSpeed(id, (s) => ({ ...s, results: [...s.results, result] }));
+      } catch (err) {
+        if (signal.aborted) return;
+        // Config problems (no API key) and expired sessions stop the run.
+        fatal = err instanceof Error ? err.message : String(err);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SPEED_CONCURRENCY, queue.length) }, worker));
+  await field;
+  updateSpeed(
+    id,
+    (s) => ({ ...s, status: signal.aborted ? "cancelled" : fatal ? "error" : "complete", error: fatal }),
+    { stage: "done" }
+  );
+  persistNow(id);
+}
+
+/** Run (or re-run) the page speed tests on a finished audit. */
+export function startSpeed(id: string) {
+  const r = get(id);
+  if (!r?.audit || r.audit.status !== "complete") throw new Error("Page speed needs a finished crawl.");
+  if (activeAudit()) throw new Error("Another audit is running. Wait for it to finish first.");
+  const controller = new AbortController();
+  controllers.set(id, controller);
+  patch(id, { phase: "running", error: null });
+  void runSpeed(id, controller.signal).then(() => {
+    controllers.delete(id);
+    patch(id, { phase: "done", summary: summaryOf(get(id)?.audit ?? null) });
+    persistNow(id);
+  });
+}
+
+/** Full mobile + desktop Lighthouse runs for one page, with what to fix. */
+export function runDiagnosis(id: string, url: string) {
+  const r = get(id);
+  if (!r?.audit) return;
+  if (r.audit.speed?.diagnoses[url]?.status === "running") return;
+  const set = (d: Partial<NonNullable<SpeedState["diagnoses"][string]>>) =>
+    updateSpeed(id, (s) => ({
+      ...s,
+      diagnoses: {
+        ...s.diagnoses,
+        [url]: { ...(s.diagnoses[url] ?? { status: "running", mobile: null, desktop: null, error: null }), ...d },
+      },
+    }));
+  set({ status: "running", error: null });
+  Promise.all([speedWithRetry(url, "mobile", true), speedWithRetry(url, "desktop", true)])
+    .then(([mobile, desktop]) => {
+      set({ status: "done", mobile, desktop });
+      persistNow(id);
+    })
+    .catch((err) => set({ status: "error", error: err instanceof Error ? err.message : String(err) }));
 }
 
 export function stopAudit(id: string) {

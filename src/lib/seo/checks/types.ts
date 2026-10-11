@@ -14,6 +14,7 @@ export type Category =
   | "onpage"
   | "schema"
   | "performance"
+  | "speed"
   | "ai";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
@@ -24,6 +25,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   onpage: "On-page SEO",
   schema: "Structured data",
   performance: "Speed & weight",
+  speed: "Page speed",
   ai: "AI crawlers",
 };
 
