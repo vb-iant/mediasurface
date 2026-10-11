@@ -10,7 +10,7 @@ export default function SeoPage() {
     <div>
       <div className="flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">SEO audit</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Any website · up to 500 pages</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Any website · up to 5,000 pages</p>
       </div>
       <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
         Finds every page on a site from its sitemap and internal links, then reports broken

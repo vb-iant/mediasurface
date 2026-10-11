@@ -329,7 +329,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
       )}
       {audit.capReached && (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          Stopped at the {audit.pageLimit}-page limit. The site has more pages than were crawled, so
+          Stopped at the {audit.pageLimit.toLocaleString("en-GB")}-page limit. The site has more pages than were crawled, so
           site-wide findings (orphans, sitemap gaps) are provisional.
         </p>
       )}
@@ -396,7 +396,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
             </div>
             <div className="px-4 py-3">
               <dt className={`text-xs ${muted}`}>Page limit</dt>
-              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">{audit.pageLimit}</dd>
+              <dd className="mt-0.5 text-zinc-900 dark:text-zinc-50">{audit.pageLimit.toLocaleString("en-GB")}</dd>
             </div>
           </dl>
           <p className={`mt-3 text-xs leading-relaxed ${muted}`}>

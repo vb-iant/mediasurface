@@ -34,7 +34,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   const incomplete =
     audit.capReached || audit.status === "cancelled" || audit.status === "error";
   const incompleteCaveat = audit.capReached
-    ? `The crawl stopped at the ${audit.pageLimit}-page limit, so some links weren't followed. Treat this list as provisional.`
+    ? `The crawl stopped at the ${audit.pageLimit.toLocaleString("en-GB")}-page limit, so some links weren't followed. Treat this list as provisional.`
     : "The crawl didn't finish, so some links weren't followed. Treat this list as provisional.";
 
   const broken = pages.filter(isBrokenPage);

@@ -107,6 +107,24 @@ export interface AuditResult {
   blockedByRobots: string[];
 }
 
+/** Default page cap for an audit. */
 export const PAGE_LIMIT = 500;
+
+/**
+ * Caps the person running an audit can choose from. The ceiling is 5,000
+ * because v1 keeps results only in the browser tab (a long audit is lost if
+ * the tab closes), the report re-renders after every batch (gets sluggish
+ * well past a few thousand pages), and sitemap reading stops at 5,000 URLs
+ * anyway. Raise it once phase 4 can save an audit as it runs.
+ */
+export const PAGE_LIMIT_OPTIONS = [500, 1000, 2500, 5000] as const;
+export const MAX_PAGE_LIMIT = 5000;
+
+/**
+ * Rough crawl speed for time estimates, in pages per second. Measured at
+ * ~7/s on contentbloom.com (500 pages in ~70s); rounded down because slower
+ * servers are common. Sites with a robots.txt Crawl-delay are far slower.
+ */
+export const ESTIMATED_PAGES_PER_SECOND = 6;
 export const USER_AGENT_TOKEN = "MediasurfaceSEO";
 export const USER_AGENT = `${USER_AGENT_TOKEN}/1.0 (+https://mediasurface.app)`;

@@ -648,7 +648,27 @@ A site-audit tool at `/admin/seo`, scoped with Ian 2026-10-11. CTRL board
 - Audits **any URL, including client sites** (e.g. contentbloom.com) — not
   just Ian's configured sites. This is what makes the SSRF guard and crawl
   politeness non-negotiable (below).
-- **500-page cap** per audit (`PAGE_LIMIT` in `src/lib/seo/types.ts`).
+- **Adjustable page cap, chosen per audit: 500 (default), 1,000, 2,500 or
+  5,000** (`PAGE_LIMIT`, `PAGE_LIMIT_OPTIONS`, `MAX_PAGE_LIMIT` in
+  `src/lib/seo/types.ts`). Originally a fixed 500; changed same day after
+  contentbloom.com hit 500 in ~70s, leaving its orphan findings
+  provisional — at 5,000 it finished completely (817 pages, 111s). Time
+  wasn't the reason to keep *a* cap; these were, and they set the 5,000
+  ceiling: results live only in the tab (a long audit is lost if it
+  closes — the page now warns via `beforeunload` while running), the
+  report recomputes after every batch, ~3.5KB per page in memory, sitemap
+  reading already stops at 5,000 URLs, and politeness to client sites.
+  The form shows an estimated duration (`ESTIMATED_PAGES_PER_SECOND` = 6,
+  measured ~7). Raise the ceiling once phase 4 can save an audit as it
+  runs and resume it.
+- **Big-audit performance:** at 5,000 pages (synthetic, scaled from a real
+  audit) findings + summary took 482ms per recompute — run after every
+  batch, the page would stutter. `urlKey()` and the host lookup behind
+  `isSameSite()` are now memoised (nav/footer links repeat on every page),
+  bringing it to ~82ms, and the report renders from a `useDeferredValue`
+  copy of the audit so that work is low-priority and the progress bar /
+  Stop button stay responsive. Not yet exercised against a real
+  5,000-page site (none to hand that's fair to crawl just for a test).
 - **No persistence in v1.** Results live in the browser tab. Output is an
   on-screen report; a Mediasurface-branded PDF download is a later phase,
   and saved history (phase 4) is where the deferred Postgres/Vercel Blob

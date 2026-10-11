@@ -1,13 +1,21 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { runCrawl, crawlPacing } from "@/lib/seo/crawler";
 import { normaliseInputUrl } from "@/lib/seo/urls";
 import type { AuditResult, DiscoveryResult, FetchedPage } from "@/lib/seo/types";
-import { PAGE_LIMIT } from "@/lib/seo/types";
+import { ESTIMATED_PAGES_PER_SECOND, PAGE_LIMIT, PAGE_LIMIT_OPTIONS } from "@/lib/seo/types";
 import { AuditReport } from "./report";
 
 type Phase = "idle" | "discovering" | "crawling" | "done";
+
+/** "under a minute", "about 3 minutes", "about 14 minutes". */
+function estimateDuration(pages: number): string {
+  const minutes = pages / ESTIMATED_PAGES_PER_SECOND / 60;
+  if (minutes < 1) return "under a minute";
+  const rounded = Math.round(minutes);
+  return `about ${rounded} minute${rounded === 1 ? "" : "s"}`;
+}
 
 async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
@@ -34,9 +42,28 @@ export function SeoAudit() {
   const [audit, setAudit] = useState<AuditResult | null>(null);
   const [queued, setQueued] = useState(0);
   const [pacingNote, setPacingNote] = useState<string | null>(null);
+  const [pageLimit, setPageLimit] = useState<number>(PAGE_LIMIT);
+  /** The limit the current/last audit actually ran with. */
+  const [activeLimit, setActiveLimit] = useState<number>(PAGE_LIMIT);
   const controllerRef = useRef<AbortController | null>(null);
 
   const running = phase === "discovering" || phase === "crawling";
+  // The report recomputes findings from the whole audit on every batch
+  // (~80ms at 5,000 pages). Rendering it from a deferred copy lets React
+  // treat that as low-priority work, so the progress bar, Stop button and
+  // scrolling stay responsive during a big crawl.
+  const reportAudit = useDeferredValue(audit);
+
+  // Results only live in this tab, so warn before closing it mid-audit.
+  useEffect(() => {
+    if (!running) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running]);
 
   const start = useCallback(async () => {
     const url = normaliseInputUrl(input);
@@ -50,6 +77,7 @@ export function SeoAudit() {
     setAudit(null);
     setQueued(0);
     setPacingNote(null);
+    setActiveLimit(pageLimit);
     setPhase("discovering");
 
     let discovery: DiscoveryResult;
@@ -84,6 +112,7 @@ export function SeoAudit() {
       requestedUrl: url,
       discovery,
       fetchBatch,
+      pageLimit,
       signal: controller.signal,
       onProgress: (snapshot, q) => {
         setAudit(snapshot);
@@ -94,14 +123,14 @@ export function SeoAudit() {
     setQueued(0);
     setPhase("done");
     controllerRef.current = null;
-  }, [input]);
+  }, [input, pageLimit]);
 
   const stop = useCallback(() => {
     controllerRef.current?.abort();
   }, []);
 
   const fetched = audit?.pages.length ?? 0;
-  const expected = Math.min(PAGE_LIMIT, fetched + queued);
+  const expected = Math.min(activeLimit, fetched + queued);
   const pct = expected > 0 ? Math.round((fetched / expected) * 100) : 0;
 
   return (
@@ -125,6 +154,19 @@ export function SeoAudit() {
           aria-label="Website address to audit"
           className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none disabled:opacity-60 sm:max-w-md dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:placeholder:text-zinc-600"
         />
+        <select
+          value={pageLimit}
+          onChange={(e) => setPageLimit(Number(e.target.value))}
+          disabled={running}
+          aria-label="Maximum pages to crawl"
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+        >
+          {PAGE_LIMIT_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              Up to {n.toLocaleString("en-GB")} pages
+            </option>
+          ))}
+        </select>
         {running ? (
           <button
             type="button"
@@ -142,6 +184,13 @@ export function SeoAudit() {
           </button>
         )}
       </form>
+      {!running && (
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          A full {pageLimit.toLocaleString("en-GB")}-page audit takes {estimateDuration(pageLimit)}
+          {pageLimit > PAGE_LIMIT ? " — keep this tab open until it finishes, results aren't saved." : "."}{" "}
+          Smaller sites finish sooner.
+        </p>
+      )}
 
       {error && (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -157,7 +206,7 @@ export function SeoAudit() {
             </span>
             {phase === "crawling" && (
               <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
-                {fetched} fetched · {queued} queued · limit {PAGE_LIMIT}
+                {fetched} fetched · {queued} queued · limit {activeLimit.toLocaleString("en-GB")}
               </span>
             )}
           </div>
@@ -171,7 +220,7 @@ export function SeoAudit() {
         </div>
       )}
 
-      {audit && <AuditReport audit={audit} live={running} />}
+      {reportAudit && <AuditReport audit={reportAudit} live={running} />}
     </div>
   );
 }

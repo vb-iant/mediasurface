@@ -15,7 +15,7 @@
 import { isAllowedByRobots } from "./robots";
 import { isSameSite, looksLikePage, urlKey } from "./urls";
 import type { AuditPage, AuditResult, DiscoveryResult, FetchedPage } from "./types";
-import { PAGE_LIMIT } from "./types";
+import { MAX_PAGE_LIMIT, PAGE_LIMIT } from "./types";
 
 export type FetchBatch = (origin: string, urls: string[]) => Promise<FetchedPage[]>;
 
@@ -59,7 +59,7 @@ export function crawlPacing(discovery: DiscoveryResult): { batchSize: number; de
 
 export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
   const { requestedUrl, discovery, fetchBatch, signal, onProgress } = options;
-  const pageLimit = options.pageLimit ?? PAGE_LIMIT;
+  const pageLimit = Math.min(Math.max(1, Math.floor(options.pageLimit ?? PAGE_LIMIT)), MAX_PAGE_LIMIT);
   const { origin, robots } = discovery;
   const { batchSize, delayMs } = crawlPacing(discovery);
 

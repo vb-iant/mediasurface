@@ -8,12 +8,26 @@ export function siteHost(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, "");
 }
 
-export function isSameSite(url: string, origin: string): boolean {
+/** siteHost() of a URL, memoised for the same reason as urlKey() below. */
+const hostCache = new Map<string, string | null>();
+
+function siteHostOf(url: string): string | null {
+  const cached = hostCache.get(url);
+  if (cached !== undefined) return cached;
+  let host: string | null;
   try {
-    return siteHost(new URL(url).hostname) === siteHost(new URL(origin).hostname);
+    host = siteHost(new URL(url).hostname);
   } catch {
-    return false;
+    host = null;
   }
+  if (hostCache.size >= 100_000) hostCache.clear();
+  hostCache.set(url, host);
+  return host;
+}
+
+export function isSameSite(url: string, origin: string): boolean {
+  const a = siteHostOf(url);
+  return a !== null && a === siteHostOf(origin);
 }
 
 const TRACKING_PARAMS = /^(utm_[a-z]+|gclid|fbclid|mc_cid|mc_eid|_hsenc|_hsmi)$/i;
@@ -28,8 +42,24 @@ const TRACKING_PARAMS = /^(utm_[a-z]+|gclid|fbclid|mc_cid|mc_eid|_hsenc|_hsmi)$/
  *
  * This is only a de-dupe key. The URL actually fetched and shown in the
  * report is always the real one we found.
+ *
+ * Memoised: the same nav/footer links appear on every page, and the report
+ * recomputes findings after every batch, so without a cache a 5,000-page
+ * audit re-parses hundreds of thousands of identical URLs each time.
  */
+const keyCache = new Map<string, string>();
+const KEY_CACHE_MAX = 100_000;
+
 export function urlKey(url: string): string {
+  const cached = keyCache.get(url);
+  if (cached !== undefined) return cached;
+  const key = computeUrlKey(url);
+  if (keyCache.size >= KEY_CACHE_MAX) keyCache.clear();
+  keyCache.set(url, key);
+  return key;
+}
+
+function computeUrlKey(url: string): string {
   try {
     const u = new URL(url);
     for (const name of [...u.searchParams.keys()]) {
