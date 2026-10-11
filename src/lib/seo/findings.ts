@@ -6,18 +6,11 @@
 
 import { isSameSite, urlKey } from "./urls";
 import type { AuditPage, AuditResult } from "./types";
+import { isNoindex, onPageFindings } from "./checks/on-page";
+import type { Category, Finding, Severity } from "./checks/types";
 
-export type Severity = "error" | "warning" | "info";
-
-export interface Finding {
-  id: string;
-  title: string;
-  severity: Severity;
-  description: string;
-  urls: string[];
-  /** Set when the result can't be fully trusted (e.g. page limit reached). */
-  caveat?: string;
-}
+export type { Category, Finding, Severity } from "./checks/types";
+export { CATEGORY_LABELS } from "./checks/types";
 
 export function isOnSite(page: AuditPage, origin: string): boolean {
   return isSameSite(page.finalUrl, origin);
@@ -41,10 +34,20 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (broken.length > 0) {
     findings.push({
       id: "broken-pages",
+      category: "status",
       title: "Pages that failed to load",
       severity: "error",
       description: "These internal URLs returned an error status (4xx/5xx) or didn't respond at all.",
       urls: broken.map((p) => p.url),
+      notes: Object.fromEntries(
+        broken.map((p) => {
+          const result = p.status ? `HTTP ${p.status}` : p.error ?? "No response";
+          const via = p.redirectChain.length
+            ? `Redirects to ${p.finalUrl.replace(new URL(origin).origin, "") || "/"}, which returns `
+            : "";
+          return [p.url, via ? `${via}${result}` : result];
+        })
+      ),
     });
   }
 
@@ -52,6 +55,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (offsite.length > 0) {
     findings.push({
       id: "offsite-redirects",
+      category: "status",
       title: "Internal links that redirect off the site",
       severity: "warning",
       description: "These URLs are on this site's domain but redirect somewhere else entirely.",
@@ -63,6 +67,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (chains.length > 0) {
     findings.push({
       id: "redirect-chains",
+      category: "status",
       title: "Redirect chains",
       severity: "warning",
       description: "These URLs take more than one redirect to reach their final page. Point links straight at the final URL.",
@@ -78,6 +83,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (redirects.length > 0) {
     findings.push({
       id: "redirects",
+      category: "status",
       title: "Internal links pointing at redirects",
       severity: "info",
       description: "These URLs are linked internally but redirect once before loading. Usually harmless; updating the links saves a hop.",
@@ -88,6 +94,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (!robots.found || robots.error) {
     findings.push({
       id: "robots-missing",
+      category: "sitemap",
       title: robots.error ? "robots.txt couldn't be read" : "No robots.txt file",
       severity: robots.error ? "warning" : "info",
       description: robots.error
@@ -100,6 +107,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (!sitemap.found) {
     findings.push({
       id: "sitemap-missing",
+      category: "sitemap",
       title: "No XML sitemap found",
       severity: "warning",
       description:
@@ -112,6 +120,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
     if (robots.found && robots.sitemaps.length === 0) {
       findings.push({
         id: "sitemap-not-in-robots",
+      category: "sitemap",
         title: "Sitemap not referenced in robots.txt",
         severity: "info",
         description: "A sitemap exists but robots.txt doesn't point to it with a Sitemap: line.",
@@ -125,6 +134,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
     if (sitemapProblems.length > 0) {
       findings.push({
         id: "sitemap-bad-urls",
+      category: "sitemap",
         title: "Sitemap URLs that don't load directly",
         severity: "warning",
         description: "A sitemap should only list final, working URLs. These return an error or redirect.",
@@ -147,6 +157,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
     if (wrongHost.length > 0) {
       findings.push({
         id: "sitemap-wrong-host",
+      category: "sitemap",
         title: "Sitemap URLs use a different host or protocol",
         severity: "warning",
         description: `The site serves from ${siteOrigin.protocol}//${siteOrigin.host}, but these sitemap URLs don't, so each one redirects. List the final URLs instead.`,
@@ -164,14 +175,16 @@ export function computeFindings(audit: AuditResult): Finding[] {
         p.status === 200 &&
         !p.inSitemap &&
         p.depth !== null &&
-        !new URL(p.finalUrl).search
+        !new URL(p.finalUrl).search &&
+        !(p.onPage && isNoindex(p.onPage))
     );
     if (unlisted.length > 0) {
       findings.push({
         id: "unlisted",
+      category: "sitemap",
         title: "Pages missing from the sitemap",
         severity: "warning",
-        description: "These pages are linked from the site and load fine, but aren't in the XML sitemap. (URLs with query strings aren't counted.)",
+        description: "These pages are linked from the site and load fine, but aren't in the XML sitemap. (URLs with query strings and noindex pages aren't counted.)",
         urls: unlisted.map((p) => p.finalUrl),
       });
     }
@@ -194,6 +207,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
     if (orphans.length > 0) {
       findings.push({
         id: "orphans",
+      category: "sitemap",
         title: "Orphan pages",
         severity: "warning",
         description: "These URLs are in the sitemap, but no crawled page links to them. Search engines and visitors can only find them via the sitemap.",
@@ -205,6 +219,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
     if (sitemap.truncated) {
       findings.push({
         id: "sitemap-truncated",
+      category: "sitemap",
         title: "Sitemap only partly read",
         severity: "info",
         description: "The sitemap is very large, so reading stopped early (50 sitemap files or 5,000 URLs). Sitemap comparisons cover only what was read.",
@@ -216,6 +231,7 @@ export function computeFindings(audit: AuditResult): Finding[] {
   if (audit.blockedByRobots.length > 0) {
     findings.push({
       id: "blocked-by-robots",
+      category: "sitemap",
       title: "Linked pages blocked by robots.txt",
       severity: "info",
       description: "These internal URLs are linked from the site but robots.txt disallows crawling them, so they weren't checked. Fine if intentional.",
@@ -223,8 +239,15 @@ export function computeFindings(audit: AuditResult): Finding[] {
     });
   }
 
+  findings.push(...onPageFindings(audit));
+
   const severityOrder: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-  return findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  const categoryOrder: Record<Category, number> = { status: 0, sitemap: 1, onpage: 2 };
+  return findings.sort(
+    (a, b) =>
+      categoryOrder[a.category] - categoryOrder[b.category] ||
+      severityOrder[a.severity] - severityOrder[b.severity]
+  );
 }
 
 export function summarise(audit: AuditResult, findings: Finding[]) {

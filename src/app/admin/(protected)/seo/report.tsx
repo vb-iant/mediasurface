@@ -1,7 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { computeFindings, isBrokenPage, isOnSite, summarise, type Finding, type Severity } from "@/lib/seo/findings";
+import { Fragment, useMemo, useState } from "react";
+import {
+  CATEGORY_LABELS,
+  computeFindings,
+  isBrokenPage,
+  isOnSite,
+  summarise,
+  type Category,
+  type Finding,
+  type Severity,
+} from "@/lib/seo/findings";
+import { urlKey } from "@/lib/seo/urls";
 import type { AuditPage, AuditResult } from "@/lib/seo/types";
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; label: string; dot: string }> = {
@@ -95,10 +105,15 @@ function FindingItem({ finding, origin }: { finding: Finding; origin: string }) 
         {visible.length > 0 && (
           <ul className="mt-3 space-y-1 text-sm">
             {visible.map((u) => (
-              <li key={u} className="truncate">
-                <a href={u} target="_blank" rel="noreferrer noopener" className="text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-700 dark:text-zinc-300 dark:decoration-zinc-700 dark:hover:decoration-zinc-300">
+              <li key={u} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                <a href={u} target="_blank" rel="noreferrer noopener" className="min-w-0 max-w-full truncate text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-700 dark:text-zinc-300 dark:decoration-zinc-700 dark:hover:decoration-zinc-300">
                   {displayPath(u, origin)}
                 </a>
+                {finding.notes?.[u] && (
+                  <span className={`min-w-0 max-w-full truncate text-xs ${muted}`} title={finding.notes[u]}>
+                    {finding.notes[u]}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -113,22 +128,120 @@ function FindingItem({ finding, origin }: { finding: Finding; origin: string }) 
   );
 }
 
-type SortKey = "url" | "status" | "depth" | "timeMs" | "sizeBytes" | "inlinkCount";
-type Filter = "all" | "ok" | "redirect" | "broken" | "unlisted";
+type SortKey = "url" | "status" | "depth" | "timeMs" | "sizeBytes" | "inlinkCount" | "issues";
+type Filter = "all" | "issues" | "ok" | "redirect" | "broken" | "unlisted";
 const PAGE_SIZE = 50;
 
-function Inventory({ audit }: { audit: AuditResult }) {
+interface PageIssue {
+  finding: Finding;
+  note?: string;
+}
+
+/** urlKey → the findings that name that URL (once each). */
+function indexIssues(findings: Finding[]): Map<string, PageIssue[]> {
+  const index = new Map<string, PageIssue[]>();
+  for (const f of findings) {
+    for (const u of f.urls) {
+      const key = urlKey(u);
+      let list = index.get(key);
+      if (!list) index.set(key, (list = []));
+      if (!list.some((i) => i.finding.id === f.id)) list.push({ finding: f, note: f.notes?.[u] });
+    }
+  }
+  return index;
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
+
+function issuesFor(p: AuditPage, index: Map<string, PageIssue[]>): PageIssue[] {
+  const a = index.get(urlKey(p.url)) ?? [];
+  const finalKey = urlKey(p.finalUrl);
+  const b = finalKey === urlKey(p.url) ? [] : index.get(finalKey) ?? [];
+  const merged = [...a, ...b.filter((x) => !a.some((y) => y.finding.id === x.finding.id))];
+  return merged.sort((x, y) => SEVERITY_RANK[x.finding.severity] - SEVERITY_RANK[y.finding.severity]);
+}
+
+function Field({ label, value, hint }: { label: string; value: string | null | undefined; hint?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className={`text-xs ${muted}`}>
+        {label}
+        {hint && <span className="ml-1 tabular-nums">· {hint}</span>}
+      </dt>
+      <dd className={`mt-0.5 break-words text-sm ${value ? "text-zinc-900 dark:text-zinc-50" : muted}`}>{value || "—"}</dd>
+    </div>
+  );
+}
+
+function PageDetails({ page, issues }: { page: AuditPage; issues: PageIssue[] }) {
+  const op = page.onPage;
+  return (
+    <div className="space-y-4 bg-zinc-50 px-4 py-4 dark:bg-zinc-900/40">
+      {issues.length > 0 && (
+        <ul className="space-y-1.5">
+          {issues.map(({ finding, note }) => (
+            <li key={finding.id} className="flex items-baseline gap-2 text-sm">
+              <span className={`mt-1.5 h-2 w-2 shrink-0 self-start rounded-full ${SEVERITY_STYLE[finding.severity].dot}`} aria-hidden />
+              <span className="text-zinc-900 dark:text-zinc-50">{finding.title}</span>
+              {note && <span className={`min-w-0 truncate text-xs ${muted}`}>{note}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {op ? (
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Field label="Title" value={page.title} hint={page.title ? `${page.title.length} chars` : undefined} />
+          <Field
+            label="Meta description"
+            value={op.metaDescription}
+            hint={op.metaDescription ? `${op.metaDescription.length} chars` : undefined}
+          />
+          <Field label={op.h1s.length > 1 ? `H1 headings (${op.h1s.length})` : "H1 heading"} value={op.h1s.filter(Boolean).join(" · ")} />
+          <Field label="Canonical" value={op.canonical} />
+          <Field label="Robots" value={[op.metaRobots, op.xRobotsTag && `X-Robots-Tag: ${op.xRobotsTag}`].filter(Boolean).join(" · ") || null} />
+          <Field label="Language" value={op.lang} />
+          <Field label="og:title" value={op.ogTitle} />
+          <Field label="og:image" value={op.ogImage} />
+          <Field
+            label="Images"
+            value={op.imageCount ? `${op.imageCount} total, ${op.imagesMissingAlt} without alt text` : "None"}
+          />
+          <Field label="Links" value={`${page.internalLinks.length} internal, ${page.externalLinkCount} external`} />
+        </dl>
+      ) : (
+        <p className={`text-sm ${muted}`}>
+          {page.error ?? (page.isHtml ? `No on-page data (HTTP ${page.status}).` : `Not an HTML page (${page.contentType ?? "unknown type"}).`)}
+        </p>
+      )}
+      {page.redirectChain.length > 0 && (
+        <p className={`break-all text-xs ${muted}`}>
+          Redirects: {page.redirectChain.map((h) => `${h.url} (${h.status})`).join(" → ")} → {page.finalUrl}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Inventory({ audit, findings }: { audit: AuditResult; findings: Finding[] }) {
   const { origin } = audit.discovery;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "depth", dir: 1 });
   const [page, setPage] = useState(1);
+  const [open, setOpen] = useState<string | null>(null);
+  const issueIndex = useMemo(() => indexIssues(findings), [findings]);
+  const issuesByUrl = useMemo(
+    () => new Map(audit.pages.map((p) => [p.url, issuesFor(p, issueIndex)])),
+    [audit.pages, issueIndex]
+  );
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = audit.pages.filter((p) => {
       if (q && !p.url.toLowerCase().includes(q) && !(p.title ?? "").toLowerCase().includes(q)) return false;
       switch (filter) {
+        case "issues":
+          return (issuesByUrl.get(p.url)?.length ?? 0) > 0;
         case "ok":
           return !isBrokenPage(p) && p.redirectChain.length === 0;
         case "redirect":
@@ -147,6 +260,8 @@ function Inventory({ audit }: { audit: AuditResult }) {
           return p.url;
         case "depth":
           return p.depth ?? Number.MAX_SAFE_INTEGER;
+        case "issues":
+          return issuesByUrl.get(p.url)?.length ?? 0;
         default:
           return p[sort.key];
       }
@@ -156,7 +271,7 @@ function Inventory({ audit }: { audit: AuditResult }) {
       const vb = val(b);
       return (va < vb ? -1 : va > vb ? 1 : 0) * sort.dir;
     });
-  }, [audit.pages, query, filter, sort, origin]);
+  }, [audit.pages, query, filter, sort, origin, issuesByUrl]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const current = Math.min(page, totalPages);
@@ -182,6 +297,7 @@ function Inventory({ audit }: { audit: AuditResult }) {
 
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
+    { id: "issues", label: "Has issues" },
     { id: "ok", label: "OK" },
     { id: "redirect", label: "Redirects" },
     { id: "broken", label: "Broken" },
@@ -191,7 +307,10 @@ function Inventory({ audit }: { audit: AuditResult }) {
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Page inventory</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Page inventory</h2>
+          <p className={`text-xs ${muted}`}>Click a row to see its on-page details and issues.</p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex overflow-hidden rounded-md border border-zinc-300 text-xs dark:border-zinc-700">
             {filters.map((f) => (
@@ -228,6 +347,7 @@ function Inventory({ audit }: { audit: AuditResult }) {
             <tr>
               {header("url", "Page")}
               {header("status", "Status")}
+              {header("issues", "Issues", "text-right")}
               {header("depth", "Depth", "text-right")}
               {header("inlinkCount", "Inlinks", "text-right")}
               <th className="px-3 py-2 font-medium">Sitemap</th>
@@ -238,13 +358,25 @@ function Inventory({ audit }: { audit: AuditResult }) {
           <tbody>
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={7} className={`px-3 py-6 text-center text-sm ${muted}`}>
+                <td colSpan={8} className={`px-3 py-6 text-center text-sm ${muted}`}>
                   No pages match.
                 </td>
               </tr>
             ) : (
-              visible.map((p) => (
-                <tr key={p.url} className="border-b border-zinc-100 align-top last:border-0 dark:border-zinc-900">
+              visible.map((p) => {
+                const issues = issuesByUrl.get(p.url) ?? [];
+                const worst = issues[0]?.finding.severity;
+                const isOpen = open === p.url;
+                return (
+                <Fragment key={p.url}>
+                <tr
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a")) return;
+                    setOpen(isOpen ? null : p.url);
+                  }}
+                  aria-expanded={isOpen}
+                  className={`cursor-pointer border-b border-zinc-100 align-top last:border-0 hover:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900/40 ${isOpen ? "bg-zinc-50 dark:bg-zinc-900/40" : ""}`}
+                >
                   <td className="max-w-[22rem] px-3 py-2">
                     <a href={p.url} target="_blank" rel="noreferrer noopener" className="block truncate text-zinc-900 hover:underline dark:text-zinc-50" title={p.url}>
                       {displayPath(p.url, origin)}
@@ -261,13 +393,32 @@ function Inventory({ audit }: { audit: AuditResult }) {
                   <td className="px-3 py-2">
                     <StatusBadge page={p} />
                   </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {issues.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5 text-zinc-700 dark:text-zinc-300">
+                        <span className={`h-2 w-2 rounded-full ${SEVERITY_STYLE[worst!].dot}`} aria-hidden />
+                        {issues.length}
+                      </span>
+                    ) : (
+                      <span className={muted}>—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.depth ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.inlinkCount}</td>
                   <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{p.inSitemap ? "Yes" : "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.status ? `${p.timeMs} ms` : "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.sizeBytes ? formatBytes(p.sizeBytes) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.status ? `${p.timeMs} ms` : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{p.sizeBytes ? formatBytes(p.sizeBytes) : "—"}</td>
                 </tr>
-              ))
+                {isOpen && (
+                  <tr className="border-b border-zinc-100 dark:border-zinc-900">
+                    <td colSpan={8} className="p-0">
+                      <PageDetails page={p} issues={issues} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -361,7 +512,20 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
                 {live ? "Nothing yet — findings appear as pages are crawled." : "No issues found in the pages crawled."}
               </p>
             ) : (
-              findings.map((f) => <FindingItem key={f.id} finding={f} origin={discovery.origin} />)
+              (Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => {
+                const group = findings.filter((f) => f.category === cat);
+                if (group.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <h3 className={`border-b border-zinc-100 bg-zinc-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide first:rounded-t-md dark:border-zinc-900 dark:bg-zinc-900/40 ${muted}`}>
+                      {CATEGORY_LABELS[cat]}
+                    </h3>
+                    {group.map((f) => (
+                      <FindingItem key={f.id} finding={f} origin={discovery.origin} />
+                    ))}
+                  </div>
+                );
+              })
             )}
           </div>
         </section>
@@ -406,7 +570,7 @@ export function AuditReport({ audit, live }: { audit: AuditResult; live: boolean
         </section>
       </div>
 
-      <Inventory audit={audit} />
+      <Inventory audit={audit} findings={findings} />
     </div>
   );
 }

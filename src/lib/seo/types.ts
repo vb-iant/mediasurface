@@ -39,6 +39,32 @@ export interface FetchedPage {
   internalLinks: string[];
   /** Count of external links found (checked in phase 3). */
   externalLinkCount: number;
+  /** On-page SEO data (phase 2). Null for non-HTML or failed responses. */
+  onPage: OnPageData | null;
+}
+
+/** Everything the phase 2 on-page checks read. Extracted server-side. */
+export interface OnPageData {
+  /** Number of <title> elements (more than one is itself a problem). */
+  titleCount: number;
+  metaDescription: string | null;
+  metaDescriptionCount: number;
+  /** Text of each <h1>, whitespace-collapsed (empty string for an empty H1). */
+  h1s: string[];
+  /** Canonical href, resolved to an absolute URL. */
+  canonical: string | null;
+  canonicalCount: number;
+  /** Content of <meta name="robots"> (and googlebot), lower-cased. */
+  metaRobots: string | null;
+  /** X-Robots-Tag response header, lower-cased. */
+  xRobotsTag: string | null;
+  lang: string | null;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImage: string | null;
+  imageCount: number;
+  /** <img> elements with no alt attribute at all (alt="" is valid: decorative). */
+  imagesMissingAlt: number;
 }
 
 /** A page as recorded in the audit — fetch result plus crawl context. */

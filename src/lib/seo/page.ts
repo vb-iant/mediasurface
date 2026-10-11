@@ -5,7 +5,7 @@
 import "server-only";
 import { safeFetch } from "./fetch-page";
 import { extractHtml } from "./extract";
-import type { FetchedPage } from "./types";
+import type { FetchedPage, OnPageData } from "./types";
 
 function isHtmlType(contentType: string | null): boolean {
   if (!contentType) return false;
@@ -20,12 +20,19 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
   let title: string | null = null;
   let internalLinks: string[] = [];
   let externalLinkCount = 0;
+  let onPage: OnPageData | null = null;
 
   if (isHtml && raw.body.length > 0) {
-    const extracted = extractHtml(raw.body.toString("utf8"), raw.finalUrl, origin);
+    const extracted = extractHtml(
+      raw.body.toString("utf8"),
+      raw.finalUrl,
+      origin,
+      raw.headers["x-robots-tag"] ?? null
+    );
     title = extracted.title;
     internalLinks = extracted.internalLinks;
     externalLinkCount = extracted.externalLinkCount;
+    onPage = extracted.onPage;
   }
 
   return {
@@ -42,6 +49,7 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     title,
     internalLinks,
     externalLinkCount,
+    onPage,
   };
 }
 
