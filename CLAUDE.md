@@ -1120,6 +1120,25 @@ the Page speed stage.
 - bbc.co.uk via `/api/seo/field`: full phone + desktop field data.
 - No console errors; light/dark; 390px (table scrolls inside its card).
 
+**Smarter sample (2026-10-12, Ian):** asked about a "test every page"
+button; decided against it for now — Lighthouse findings are mostly
+template-level (the type sample catches them) and heavy images /
+uncompressed HTML are already checked on every page. A full-site scan
+(15–20 min on a ~200-page site) would be a background "email me when
+it's done" job, which needs the same server-side jobs + storage as saved
+history — logged as a Later item on the Mediasurface SEO board.
+Instead the sample also includes pages **the crawl flagged as likely
+slow** (`riskyPages()` in `speed.ts`): heavy images (> 300 KB, ignoring
+images shared by more than 20% of pages — on contentbloom.com one 1.2 MB
+image is on nearly every page, which would otherwise flag everything),
+slow server response (> 2 s), large HTML (> 200 KB), many images (> 30).
+Worst first; about a quarter of the sample extra (at least 2), within
+the 50-page maximum. Flagged rows say why ("Flagged by the crawl: 2
+images over 300 KB (8.6 MB)"). Verified: velocity-b.com adds
+`/blog/what-actually-works-when-growth-stalls` (its 355 KB image);
+contentbloom.com samples 23 pages with 9 flagged, mostly /work/ case
+studies with 2–11 MB of images.
+
 ### Severity changes (2026-10-12, Ian)
 
 Ian: the bar for "error" was too high — **all broken links are errors**.

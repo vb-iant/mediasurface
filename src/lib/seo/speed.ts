@@ -11,6 +11,7 @@
 
 import { isNoindex } from "./checks/on-page";
 import { isSameSite, urlKey } from "./urls";
+import { isImage } from "./checks/performance";
 import type { AuditResult, SpeedResult, SpeedSampleEntry } from "./types";
 import { SPEED_SAMPLE_MAX, SPEED_SAMPLE_MIN, SPEED_SAMPLE_SHARE } from "./types";
 
@@ -69,6 +70,63 @@ function spread<T>(list: T[], n: number): T[] {
   return out;
 }
 
+/** Thresholds for "likely slow" pages, from what the crawl already measured. */
+const RISK = { heavyImage: 300 * 1024, slowMs: 2000, bigHtml: 200 * 1024, manyImages: 30 };
+
+const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
+
+/**
+ * Pages the crawl already suggests will be slow (Ian, 2026-10-12: make the
+ * sample smarter rather than bigger). Scored by how far past each
+ * threshold they are, so the worst come first.
+ */
+export function riskyPages(audit: AuditResult, candidates: string[]): { url: string; score: number; reason: string }[] {
+  const imageBytes = new Map<string, number>();
+  for (const r of audit.linkCheck?.results ?? []) {
+    if (r.kind === "asset" && r.verdict === "ok" && r.contentLength && isImage(r)) imageBytes.set(r.url, r.contentLength);
+  }
+  const byFinal = new Map(audit.pages.map((p) => [urlKey(p.finalUrl), p] as const));
+  // Images on lots of pages (logos, header/footer art) slow every page
+  // equally — the type sample already measures them, so they don't single a
+  // page out. Found on contentbloom.com: one 1.2 MB image on nearly every page.
+  const uses = new Map<string, number>();
+  for (const url of candidates) {
+    for (const a of new Set(byFinal.get(urlKey(url))?.assetLinks ?? [])) uses.set(a, (uses.get(a) ?? 0) + 1);
+  }
+  const shared = Math.max(3, candidates.length * 0.2);
+  const out: { url: string; score: number; reason: string }[] = [];
+  for (const url of candidates) {
+    const p = byFinal.get(urlKey(url));
+    if (!p) continue;
+    let score = 0;
+    const reasons: string[] = [];
+    const heavy = [...new Set(p.assetLinks ?? [])]
+      .filter((a) => (uses.get(a) ?? 0) <= shared)
+      .map((a) => imageBytes.get(a) ?? 0)
+      .filter((b) => b > RISK.heavyImage);
+    if (heavy.length) {
+      const total = heavy.reduce((t, b) => t + b, 0);
+      score += total / RISK.heavyImage;
+      reasons.push(heavy.length === 1 ? `image of ${kb(total)}` : `${heavy.length} images over 300 KB (${kb(total)})`);
+    }
+    if (p.timeMs > RISK.slowMs) {
+      score += p.timeMs / RISK.slowMs;
+      reasons.push(`slow server response (${(p.timeMs / 1000).toFixed(1)} s)`);
+    }
+    if (p.sizeBytes > RISK.bigHtml) {
+      score += p.sizeBytes / RISK.bigHtml;
+      reasons.push(`large HTML (${kb(p.sizeBytes)})`);
+    }
+    const imgs = p.onPage?.imageCount ?? 0;
+    if (imgs > RISK.manyImages) {
+      score += imgs / RISK.manyImages;
+      reasons.push(`${imgs} images`);
+    }
+    if (score > 0) out.push({ url, score, reason: reasons.join(", ") });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
 export function pickSpeedSample(audit: AuditResult): { indexablePages: number; sample: SpeedSampleEntry[] } {
   const candidates = speedCandidates(audit);
   const n = sampleSize(candidates.length);
@@ -82,11 +140,18 @@ export function pickSpeedSample(audit: AuditResult): { indexablePages: number; s
     g.push(url);
   }
   const sizes = new Map([...groups].map(([t, urls]) => [t, urls.length]));
-  const quota = new Map<string, number>();
 
+  // Extra slots for pages the crawl flagged as likely slow: about a quarter
+  // of the sample on top (at least 2), within the overall maximum.
+  const risky = riskyPages(audit, candidates);
+  const riskSlots = Math.min(risky.length, Math.max(2, Math.ceil(n / 4)), candidates.length - Math.min(n, candidates.length));
+  const total = Math.min(SPEED_SAMPLE_MAX, n + riskSlots);
+  const typeSlots = Math.max(1, total - riskSlots);
+
+  const quota = new Map<string, number>();
   // Homepage always (it's the "/" group, size 1).
   const ordered = [...groups.entries()].sort((a, b) => (a[0] === "/" ? -1 : b[0] === "/" ? 1 : b[1].length - a[1].length));
-  let left = n;
+  let left = typeSlots;
   // One page from every type while slots last (biggest types first)…
   for (const [t] of ordered) {
     if (left === 0) break;
@@ -95,10 +160,9 @@ export function pickSpeedSample(audit: AuditResult): { indexablePages: number; s
   }
   // …then the rest in proportion to how many pages each type has.
   if (left > 0) {
-    const total = candidates.length;
     const shares = ordered.map(([t, urls]) => {
       const room = urls.length - (quota.get(t) ?? 0);
-      const ideal = (urls.length / total) * n - (quota.get(t) ?? 0);
+      const ideal = (urls.length / candidates.length) * typeSlots - (quota.get(t) ?? 0);
       return { t, room, ideal: Math.max(0, ideal) };
     });
     while (left > 0) {
@@ -112,9 +176,25 @@ export function pickSpeedSample(audit: AuditResult): { indexablePages: number; s
   }
 
   const sample: SpeedSampleEntry[] = [];
+  const chosen = new Set<string>();
   for (const [t, urls] of ordered) {
     const k = quota.get(t) ?? 0;
-    for (const url of spread(urls, k)) sample.push({ url, template: t, templatePages: sizes.get(t) ?? 0 });
+    for (const url of spread(urls, k)) {
+      sample.push({ url, template: t, templatePages: sizes.get(t) ?? 0 });
+      chosen.add(url);
+    }
+  }
+  const riskReason = new Map(risky.map((r) => [r.url, r.reason]));
+  // A type-sampled page that's also risky says why it's interesting.
+  for (const e of sample) if (riskReason.has(e.url)) e.reason = riskReason.get(e.url);
+  let added = 0;
+  for (const r of risky) {
+    if (added >= total - sample.length) break;
+    if (chosen.has(r.url)) continue;
+    const t = templateOf(r.url);
+    sample.push({ url: r.url, template: t, templatePages: sizes.get(t) ?? 0, reason: r.reason });
+    chosen.add(r.url);
+    added++;
   }
   return { indexablePages: candidates.length, sample };
 }

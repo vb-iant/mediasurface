@@ -71,6 +71,7 @@ export function SpeedPanel({ record, audit }: { record: AuditRecord; audit: Audi
   const site = siteSpeed(sp.results);
   const scoreRating = rate("score", site.score);
   const types = new Set(sp.sample.map((s) => s.template)).size;
+  const flagged = sp.sample.filter((s) => s.reason).length;
   const running = sp.status === "running";
 
   return (
@@ -115,7 +116,9 @@ export function SpeedPanel({ record, audit }: { record: AuditRecord; audit: Audi
           <p className={`mt-3 text-xs leading-relaxed ${muted}`}>
             Median of {site.tested} page{site.tested === 1 ? "" : "s"} tested
             {running && ` so far (of ${sp.sample.length})`}
-            {!running && sp.sample.length > 0 && ` — ${sp.sample.length} of ${sp.indexablePages.toLocaleString("en-GB")} indexable pages, across ${types} page type${types === 1 ? "" : "s"}`}
+            {!running && sp.sample.length > 0 && ` — ${sp.sample.length} of ${sp.indexablePages.toLocaleString("en-GB")} indexable pages, across ${types} page type${types === 1 ? "" : "s"}${
+              flagged ? `, including ${flagged} the crawl flagged as likely slow` : ""
+            }`}
             {site.failed > 0 && `; ${site.failed} couldn't be tested`}. Lab test: Lighthouse simulating a mid-range phone on a
             slow 4G connection, so it reads slower than most real visits.
           </p>
@@ -242,6 +245,11 @@ function SampleTable({ record, audit }: { record: AuditRecord; audit: AuditResul
                     <span className={`block truncate text-xs ${muted}`}>
                       {s.template === "/" ? "Homepage" : `${s.template} · ${s.templatePages} page${s.templatePages === 1 ? "" : "s"} of this type`}
                     </span>
+                    {s.reason && (
+                      <span className="block truncate text-xs text-amber-600 dark:text-amber-400" title={s.reason}>
+                        Flagged by the crawl: {s.reason}
+                      </span>
+                    )}
                   </td>
                   {r ? (
                     r.score === null ? (

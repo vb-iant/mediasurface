@@ -266,6 +266,8 @@ export interface SpeedSampleEntry {
   template: string;
   /** How many indexable pages share that page type. */
   templatePages: number;
+  /** Set when the page was added because the crawl flagged it as likely slow. */
+  reason?: string;
 }
 
 export interface SpeedDiagnosis {
