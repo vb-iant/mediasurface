@@ -1217,6 +1217,44 @@ keeping the old anchor working. `node scripts/check-guidance.mjs` fails if
 a check raises an id with no guidance (or guidance exists for a removed
 id); run it after adding or renaming a check.
 
+**Report download — built 2026-10-12.** "Client report" panel on the
+audit overview (`report-download.tsx`), shown once an audit has finished
+or been stopped: **Download report (.zip)**, plus "PDF only · Excel only".
+Code in `src/lib/seo/report/`:
+- `model.ts` — pure: `buildReportModel` (PDF) and `buildWorkbook`
+  (sheets as rows), both from `AuditResult` + `computeFindings`, grouped
+  by `STAGES`. `partialReasons()` decides the partial banner (stopped,
+  error, page cap reached, link checks or speed stopped).
+- `pdf.tsx` — @react-pdf/renderer (v4, works with React 19.2 / Next
+  16.3). Cover, summary (counts, speed, top 5 errors/warnings), one
+  section per stage (errors/warnings in full with up to 5 example URLs;
+  notices compact), method and limits. Fonts: Space Grotesk + Work Sans,
+  Latin subset, bundled in `public/fonts/report/` (OFL) — the "→" in
+  finding notes is rewritten to "to" because the subset lacks it.
+  Hyphenation is off (it split URLs). Example URLs on the audited origin
+  show as paths; other hosts (apex vs www) stay full, since that's often
+  the point of the finding.
+- `xlsx.ts` — hand-written SpreadsheetML zipped with fflate (exceljs is
+  ~1 MB and Node-stream based; SheetJS isn't on npm any more). Tabs
+  About, Findings (one row per finding × URL × linking page), Pages,
+  Links, Speed; header row styled, frozen, filtered; URLs clickable.
+  **Formula-injection guard:** every text cell is an inline string (never
+  evaluated) and values starting with = + - @ get `quotePrefix`; tested
+  with crafted values (`=HYPERLINK(...)`, `+cmd|...`) — stay text in
+  openpyxl and LibreOffice.
+- `download.ts` — loaded with `import()` on click, so the admin pages
+  don't carry the PDF library. Zip stores (doesn't re-deflate) the two
+  files.
+- `brand.ts` — `ReportBrand` config, `VELOCITY_B_BRAND` default (colours
+  from velocity-b's tailwind config, logo redrawn from its Logo.tsx).
+- Guide links in both files point at `https://www.mediasurface.app/
+  seo-guide#<id>` (www — the apex redirects).
+
+**Pushing from this environment:** the session's git proxy refuses Git
+Data API writes, so `scripts/github_batch.py` can't push here; the
+2026-10-12 commits were made with plain `git commit` + `git push` from a
+full clone (same result: one commit per change set).
+
 ## Build status
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.

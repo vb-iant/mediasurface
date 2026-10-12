@@ -506,7 +506,7 @@ export const GUIDANCE: Record<string, Guidance> = {
 };
 
 /** Public address of the guide; the PDF and workbook link to `${GUIDE_URL}#<id>`. */
-export const GUIDE_URL = "https://mediasurface.app/seo-guide";
+export const GUIDE_URL = "https://www.mediasurface.app/seo-guide";
 
 export function guideLink(findingId: string): string | null {
   return GUIDANCE[findingId] ? `${GUIDE_URL}#${findingId}` : null;
