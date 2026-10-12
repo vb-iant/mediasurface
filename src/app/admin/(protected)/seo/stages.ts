@@ -168,7 +168,7 @@ export function stageMetrics(stage: StageId, audit: AuditResult, findings: Findi
       const ext = count("broken-external");
       return [
         { label: "Broken links", value: n(broken), tone: broken ? "bad" : "good" },
-        { label: "Broken external", value: lc.externalSkipped ? "Not checked" : n(ext), tone: ext ? "warn" : undefined },
+        { label: "Broken external", value: lc.externalSkipped ? "Not checked" : n(ext), tone: ext ? "bad" : undefined },
         { label: "Checked", value: `${n(lc.results.length)}${lc.total > lc.results.length ? ` of ${n(lc.total)}` : ""}` },
       ];
     }

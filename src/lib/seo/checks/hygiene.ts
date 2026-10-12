@@ -50,7 +50,7 @@ export function hygieneFindings(audit: AuditResult): Finding[] {
     findings.push({
       id: "viewport-missing",
       title: "No mobile viewport tag",
-      severity: "warning",
+      severity: "error",
       category: "onpage",
       description:
         'These pages have no <meta name="viewport">, so phones render them as a shrunken desktop page. Google indexes the mobile version of pages, so this affects rankings too.',
@@ -63,7 +63,7 @@ export function hygieneFindings(audit: AuditResult): Finding[] {
     findings.push({
       id: "mixed-content",
       title: "Insecure content on secure pages",
-      severity: "warning",
+      severity: "error",
       category: "onpage",
       description:
         "These https pages load images, scripts, stylesheets or frames over plain http. Browsers block or flag these (\"not secure\"), so they may not show at all.",

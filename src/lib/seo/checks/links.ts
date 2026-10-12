@@ -134,7 +134,7 @@ export function linkFindings(audit: AuditResult): Finding[] {
     findings.push({
       id: "broken-external",
       title: "Broken external links",
-      severity: "warning",
+      severity: "error",
       category: "links",
       description:
         "Links to other websites that are gone: 404s, domains that no longer exist, refused connections, certificate errors or repeated server errors. Update or remove them.",

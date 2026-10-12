@@ -865,7 +865,8 @@ findings below shouldn't change):
 **Naming (Ian):** the headline finding is **"Broken links"**, not "Pages
 that failed to load" — what someone fixes is the link. A new **Links**
 category leads the report: "Broken links" (error — this site's own pages,
-files and images), "Broken external links" (warning), "Links we couldn't
+files and images), "Broken external links" (warning; error since
+2026-10-12), "Links we couldn't
 verify" (notice), plus notices if checks were capped or stopped. Every
 URL lists the pages linking to it with the link text (up to 20; the note
 gives the full count). Summary tile renamed "Broken links" (own + external).
@@ -1118,6 +1119,23 @@ the Page speed stage.
   data renders as "—" per missing metric).
 - bbc.co.uk via `/api/seo/field`: full phone + desktop field data.
 - No console errors; light/dark; 390px (table scrolls inside its card).
+
+### Severity changes (2026-10-12, Ian)
+
+Ian: the bar for "error" was too high — **all broken links are errors**.
+Promoted from warning to error:
+- "Broken external links" (`broken-external`) — a dead link is a dead
+  link to the visitor, whoever owns the target. "Links we couldn't
+  verify" stays a **notice** (bot blocking, 999/403/429, timeouts).
+- "Redirects to the homepage" (`redirect-to-home`) — the soft-404
+  pattern; effectively a broken page.
+- "Insecure content on secure pages" (`mixed-content`) — browsers block
+  those resources.
+- "No mobile viewport tag" (`viewport-missing`) — Google indexes mobile.
+
+Length/duplicate title and description checks stay warnings (Ian's
+phase 2 decision). The Velocity B baseline is unaffected (none of the
+four occur there).
 
 ## Build status
 

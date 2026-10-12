@@ -96,7 +96,7 @@ export function structureFindings(audit: AuditResult): Finding[] {
     findings.push({
       id: "redirect-to-home",
       title: "Redirects to the homepage",
-      severity: "warning",
+      severity: "error",
       category: "status",
       description:
         "These URLs redirect to the homepage instead of a matching page. Search engines treat that like a missing page (a \"soft 404\"), and visitors land somewhere unexpected. Redirect each to its closest equivalent, or let it return 404/410 and update the links.",
