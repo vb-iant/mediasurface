@@ -670,10 +670,11 @@ A site-audit tool at `/admin/seo`, scoped with Ian 2026-10-11. CTRL board
   Stop button stay responsive. Not yet exercised against a real
   5,000-page site (none to hand that's fair to crawl just for a test).
 - **No persistence in v1.** Results live in the browser tab. Output is an
-  on-screen report; a Mediasurface-branded PDF download is a later phase,
-  and saved history (phase 4) is where the deferred Postgres/Vercel Blob
-  decision gets triggered. No CSV. **Never write audit data to GitHub** —
-  every repo write triggers a Vercel deploy.
+  on-screen report; saved history is where the deferred Postgres/Vercel
+  Blob decision gets triggered. **Never write audit data to GitHub** —
+  every repo write triggers a Vercel deploy. (The original "Mediasurface-
+  branded PDF, no CSV" plan was replaced on 2026-10-12 — see "Report
+  outputs" below: Velocity B-branded PDF + Excel workbook + public guide.)
 - External links (phase 3): check for broken only, nothing more.
 
 **Architecture — browser-orchestrated crawl, server-side fetching.** The
@@ -1167,6 +1168,54 @@ appears (`tm-1791804561166`). Deliberately **no keyword-density score**
 server-side during the crawl so `AuditResult` stays small. Search volume,
 difficulty and rankings need outside data (Google Search Console is the
 free option for sites with access) — out of scope for these.
+
+### Report outputs (decided 2026-10-12, Ian)
+
+**Client-facing outputs are Velocity B, not Mediasurface.** Mediasurface
+is the internal name (a CMS company Ian worked for, acquired 2008; the UK
+trademark has lapsed and Ian owns the domains) — fun internally, but
+people remember the brand and would assume a connection. Exception: the
+public guide lives on mediasurface.app for now (Ian: clients will be fine
+with the joke); moving it is a Later task.
+
+**The tool stays private.** Publishing audit results online (HTML reports
+via a separate repo/Vercel project, or Vercel Blob) was considered and
+deferred: it would make this a client-facing service, which needs naming,
+crawler identity, per-person auth and per-client isolation decided
+together — CTRL `tm-1791827463368`. The crawler user agent
+(`MediasurfaceSEO/1.0`) rename folds into that (`tm-1791826492356`).
+
+**Three outputs, nothing about a client hosted:**
+1. **PDF summary** (`tm-1791738069391`) — cover, executive summary, one
+   section per stage with example URLs, method and limits. ~8–15 pages.
+   Velocity B branding via a config object (OgTemplateConfig pattern).
+   Partial (capped/stopped) audits allowed, with a banner and reason.
+2. **Excel workbook** (`tm-1791827456432`) — the full detail, since the
+   downloaded files are the only record. Tabs: Findings (one row per
+   finding × URL), Pages, Links, Speed. **Reverses the 2026-10-11 "no
+   CSV" decision** deliberately; one .xlsx rather than several CSVs.
+   Cells from client sites are escaped against formula injection.
+3. **Public guide** at `/seo-guide` (`tm-1791827449978`) — "why it
+   matters / how to fix" for every finding, one anchor per finding id.
+   **Built 2026-10-12.**
+
+PDF + workbook download together as `<host>-seo-audit-<date>.zip`, with
+separate-file links as a fallback (some company mail gateways quarantine
+zips). Generated in the browser from `AuditResult`; no storage.
+
+**Fix guidance** (`src/lib/seo/guidance.ts`) — one lookup keyed by finding
+id, copy approved by Ian 2026-10-12: written for a client's marketing
+lead, plain UK English, platform-neutral. Used by `/seo-guide`, the
+on-screen report (under each finding, with a "Guide" link), and later the
+PDF and workbook. Five ids describe the audit's coverage rather than the
+site (`sitemap-truncated`, `links-*` limits, `speed-failed`) — kind
+"note", one line, shown under "About the audit". Placement on the guide
+reuses `STAGES[].owns` from `stages.ts`, so the guide and report always
+group findings the same way. **Finding ids are now public** (guide
+anchors, links inside reports already sent) — don't rename one without
+keeping the old anchor working. `node scripts/check-guidance.mjs` fails if
+a check raises an id with no guidance (or guidance exists for a removed
+id); run it after adding or renaming a check.
 
 ## Build status
 

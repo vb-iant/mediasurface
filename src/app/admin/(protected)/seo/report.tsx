@@ -11,6 +11,7 @@ import {
   type Severity,
 } from "@/lib/seo/findings";
 import { urlKey } from "@/lib/seo/urls";
+import { codeSegments, guidanceFor } from "@/lib/seo/guidance";
 import { AI_BOTS, AI_GROUP_LABELS, type AiBotGroup } from "@/lib/seo/ai-bots";
 import type { AuditPage, AuditResult } from "@/lib/seo/types";
 
@@ -105,6 +106,50 @@ function SourceList({ sources, origin }: { sources: LinkSource[]; origin: string
   );
 }
 
+/** Inline code for guidance text (`backticks` mark code). */
+function GuidanceText({ text }: { text: string }) {
+  return (
+    <>
+      {codeSegments(text).map((seg, i) =>
+        seg.code ? (
+          <code key={i} className="rounded bg-zinc-100 px-1 font-mono text-[0.9em] dark:bg-zinc-800">
+            {seg.text}
+          </code>
+        ) : (
+          <Fragment key={i}>{seg.text}</Fragment>
+        )
+      )}
+    </>
+  );
+}
+
+/**
+ * "Why it matters / how to fix" from the shared guidance lookup — the same
+ * copy the public /seo-guide page, PDF and workbook use. Coverage notes
+ * (kind "note") add nothing beyond the finding's own description here.
+ */
+function FindingGuidance({ id }: { id: string }) {
+  const g = guidanceFor(id);
+  if (!g || g.kind !== "issue") return null;
+  return (
+    <div className="mt-3 grid gap-2 text-sm text-zinc-700 sm:grid-cols-2 sm:gap-4 dark:text-zinc-300">
+      <div className="min-w-0">
+        <p className={`text-xs font-medium ${muted}`}>Why it matters</p>
+        <p className="mt-0.5"><GuidanceText text={g.why} /></p>
+      </div>
+      <div className="min-w-0">
+        <p className={`text-xs font-medium ${muted}`}>How to fix</p>
+        <p className="mt-0.5">
+          <GuidanceText text={g.how} />{" "}
+          <a href={`/seo-guide#${id}`} target="_blank" rel="noreferrer" className={`whitespace-nowrap text-xs underline underline-offset-2 ${muted}`}>
+            Guide
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function FindingItem({ finding, origin }: { finding: Finding; origin: string }) {
   const [showAll, setShowAll] = useState(false);
   const style = SEVERITY_STYLE[finding.severity];
@@ -124,6 +169,7 @@ function FindingItem({ finding, origin }: { finding: Finding; origin: string }) 
       </summary>
       <div className="px-4 pb-4 pl-9">
         <p className={`text-sm ${muted}`}>{finding.description}</p>
+        <FindingGuidance id={finding.id} />
         {finding.caveat && (
           <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
             {finding.caveat}
