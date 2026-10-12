@@ -1156,6 +1156,18 @@ Length/duplicate title and description checks stay warnings (Ian's
 phase 2 decision). The Velocity B baseline is unaffected (none of the
 four occur there).
 
+### Backlog: phase 6 keywords (decided 2026-10-12, not built)
+
+Ian picked three crawl-only keyword features for the backlog (Mediasurface
+SEO board): **Site topic map** (`tm-1791804554307`), **What each page
+targets** — inferred focus phrase (`tm-1791804557282`), and **Target
+keyword check** — client's phrases → which page targets each and where it
+appears (`tm-1791804561166`). Deliberately **no keyword-density score**
+(not a ranking factor; encourages stuffing). Phrase extraction should run
+server-side during the crawl so `AuditResult` stays small. Search volume,
+difficulty and rankings need outside data (Google Search Console is the
+free option for sites with access) — out of scope for these.
+
 ## Build status
 
 - [x] `mediasurface` repo created, Next.js scaffold pushed.
