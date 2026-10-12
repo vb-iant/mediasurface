@@ -12,7 +12,7 @@
 import { isNoindex } from "./checks/on-page";
 import { isSameSite, urlKey } from "./urls";
 import { isImage } from "./checks/performance";
-import type { AuditResult, SpeedResult, SpeedSampleEntry } from "./types";
+import type { AuditResult, FieldMetrics, SpeedResult, SpeedSampleEntry, SpeedState } from "./types";
 import { SPEED_SAMPLE_MAX, SPEED_SAMPLE_MIN, SPEED_SAMPLE_SHARE } from "./types";
 
 /** Pages worth testing: indexable, loading fine, one per final URL, no query strings. */
@@ -258,4 +258,70 @@ export function formatMs(ms: number | null | undefined): string {
 
 export function formatCls(v: number | null | undefined): string {
   return v === null || v === undefined ? "—" : v.toFixed(2);
+}
+
+// ------------------------------------------------------------ real-visitor verdict
+
+export interface FieldVerdict {
+  /** "none" = no Chrome UX Report data; "limited" = some measures only, not enough to rate. */
+  status: "none" | "limited" | "rated";
+  /** Which data the verdict is about. Phones are preferred; desktop only when phones have nothing. */
+  device: "phones" | "desktop" | null;
+  /** Overall rating — only "good" when all three Core Web Vitals are present and good. */
+  rating: Rating | null;
+  /** Short label for a stat tile: "Good", "Poor", "Limited data", "No data". */
+  label: string;
+  /** One client-readable sentence saying exactly what the data does and doesn't show. */
+  detail: string;
+  metrics: FieldMetrics | null;
+}
+
+const CWV = [
+  { key: "lcp", name: "loading (LCP)", fmt: (v: number) => formatMs(v) },
+  { key: "inp", name: "responsiveness (INP)", fmt: (v: number) => formatMs(v) },
+  { key: "cls", name: "layout stability (CLS)", fmt: (v: number) => formatCls(v) },
+] as const;
+
+const hasCwv = (f: FieldMetrics | null | undefined) => !!f && CWV.some((m) => f[m.key] !== null && f[m.key] !== undefined);
+
+/**
+ * One reading of the site's real-visitor (Chrome UX Report) data, used by
+ * the stage card, the on-screen report, the PDF and the workbook so they
+ * can't disagree. Found 2026-10-12: contentbloom.com had desktop CLS only;
+ * the summary said "no data" (it looked at phones only) while the stage
+ * card said "Good" (it rated the one desktop measure).
+ *
+ * Rules: prefer phones (Google ranks on mobile); fall back to desktop only
+ * if phones have nothing, and say so. Any measure that's poor or needs
+ * improvement is reported even when others are missing — a bad signal is
+ * real. "Good" is only claimed when LCP, INP and CLS are all present and
+ * all good; otherwise it's "Limited data".
+ */
+export function fieldVerdict(field: SpeedState["field"] | null | undefined): FieldVerdict {
+  const none = (detail: string): FieldVerdict => ({ status: "none", device: null, rating: null, label: "No data", detail, metrics: null });
+  if (!field) return none("Real-visitor data wasn't looked up.");
+  if (field.error) return none(`Real-visitor data couldn't be fetched (${field.error}).`);
+  const device = hasCwv(field.phone) ? "phones" : hasCwv(field.desktop) ? "desktop" : null;
+  if (!field.found || !device) {
+    return none("Not enough real-visitor data in Google's Chrome UX Report — normal for smaller sites.");
+  }
+  const f = (device === "phones" ? field.phone : field.desktop)!;
+  const present = CWV.filter((m) => f[m.key] !== null && f[m.key] !== undefined);
+  const missing = CWV.filter((m) => !present.includes(m));
+  const rated = present.map((m) => ({ ...m, value: f[m.key] as number, r: rate(m.key, f[m.key]) }));
+  const worst: Rating | null = rated.some((m) => m.r === "poor") ? "poor" : rated.some((m) => m.r === "ni") ? "ni" : missing.length ? null : "good";
+  const word = (r: Rating | null) => (r === "good" ? "good" : r === "ni" ? "needs improvement" : r === "poor" ? "poor" : "unrated");
+  const where = device === "phones" ? "on phones" : "on desktop only (no phone data)";
+  const shown = rated.map((m) => `${m.name} ${m.fmt(m.value)} (${word(m.r)})`).join(", ");
+  const gap = missing.length ? ` Not enough data for ${missing.map((m) => m.name).join(" or ")}.` : "";
+  const status = worst === null ? "limited" : "rated";
+  const label = worst === "good" ? "Good" : worst === "ni" ? "Needs work" : worst === "poor" ? "Poor" : "Limited data";
+  return {
+    status,
+    device,
+    rating: worst,
+    label: device === "desktop" && status === "rated" ? `${label} (desktop)` : label,
+    detail: `Real visitors ${where}, 28-day 75th percentile: ${shown}.${gap}`,
+    metrics: f,
+  };
 }

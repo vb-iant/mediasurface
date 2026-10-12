@@ -418,14 +418,16 @@ export function ReportDocument({ model, safe = false }: { model: ReportModel; sa
                 <Text style={[s.tileValue, sp.lcpRating ? { color: RATING_COLOR[sp.lcpRating] } : {}]}>{sp.lcp}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.label}>Real visitors (phones)</Text>
-                <Text style={{ marginTop: 4 }}>
-                  {!sp.field
-                    ? "Not looked up."
-                    : !sp.field.found
-                      ? "Not enough real-visitor data in Google's Chrome UX Report — normal for smaller sites."
-                      : `LCP ${sp.field.lcp} · INP ${sp.field.inp} · CLS ${sp.field.cls} (28-day, 75th percentile)`}
+                <Text style={s.label}>Real visitors</Text>
+                <Text
+                  style={[
+                    { fontFamily: b.fonts.display.family, fontWeight: 700, fontSize: 12, marginTop: 2 },
+                    sp.field.rating ? { color: RATING_COLOR[sp.field.rating] } : { color: b.colors.primary },
+                  ]}
+                >
+                  {sp.field.label}
                 </Text>
+                <Text style={[s.small, { marginTop: 2 }]}>{t(sp.field.detail)}</Text>
               </View>
             </View>
             <Text style={[s.small, { marginTop: 6 }]}>

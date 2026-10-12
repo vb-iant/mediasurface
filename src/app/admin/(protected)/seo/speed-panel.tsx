@@ -8,7 +8,7 @@
  */
 
 import { Fragment, useState } from "react";
-import { formatCls, formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
+import { fieldVerdict, formatCls, formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
 import type { AuditResult, FieldMetrics, SpeedDiagnosis, SpeedOpportunity, SpeedResult } from "@/lib/seo/types";
 import { activeAudit, runDiagnosis, startSpeed, type AuditRecord } from "./audit-store";
 import { card, displayPath, muted } from "./report";
@@ -197,6 +197,11 @@ function FieldPanel({ field, running }: { field: NonNullable<AuditResult["speed"
         </>
       ) : (
         <div className="mt-3 space-y-3">
+          {/* Same verdict as the stage card, PDF and workbook (fieldVerdict). */}
+          <p className="text-sm text-zinc-900 dark:text-zinc-50">
+            <span className="font-medium">{fieldVerdict(field).label}.</span>{" "}
+            <span className={muted}>{fieldVerdict(field).detail}</span>
+          </p>
           {field.phone && <FieldRow label="Phones" f={field.phone} />}
           {field.desktop && <FieldRow label="Desktop" f={field.desktop} />}
           <p className={`text-xs leading-relaxed ${muted}`}>

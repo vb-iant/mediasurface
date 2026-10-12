@@ -13,7 +13,7 @@ import type { AuditResult } from "@/lib/seo/types";
 import { summarise } from "@/lib/seo/findings";
 import { AI_BOTS } from "@/lib/seo/ai-bots";
 import { isImage } from "@/lib/seo/checks/performance";
-import { formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
+import { fieldVerdict, formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
 
 export type StageId = "discovery" | "crawl" | "links" | "onpage" | "structure" | "schema" | "performance" | "speed";
 export type StageStatus = "waiting" | "running" | "done" | "skipped" | "stopped";
@@ -220,20 +220,12 @@ export function stageMetrics(stage: StageId, audit: AuditResult, findings: Findi
         ];
       }
       const site = siteSpeed(sp.results);
-      const phone = sp.field?.phone ?? sp.field?.desktop;
-      const worst = phone
-        ? (["lcp", "inp", "cls"] as const)
-            .map((m) => rate(m, phone[m]))
-            .reduce<Rating | null>((w, r) => (r === "poor" || w === "poor" ? "poor" : r === "ni" || w === "ni" ? "ni" : r ?? w), null)
-        : null;
+      // Shared with the PDF and workbook (fieldVerdict) so they can't disagree.
+      const fv = fieldVerdict(sp.field);
       return [
         { label: "Site score", value: site.score === null ? "—" : String(site.score), tone: tone(rate("score", site.score)) },
         { label: "Median LCP", value: formatMs(site.lcp), tone: tone(rate("lcp", site.lcp)) },
-        {
-          label: "Real visitors",
-          value: !sp.field ? "…" : !sp.field.found ? "No data" : worst === "good" ? "Good" : worst === "ni" ? "Needs work" : worst === "poor" ? "Poor" : "—",
-          tone: tone(worst),
-        },
+        { label: "Real visitors", value: !sp.field ? "…" : fv.label, tone: tone(fv.rating) },
       ];
     }
   }

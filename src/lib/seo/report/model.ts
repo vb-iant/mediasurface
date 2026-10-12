@@ -16,7 +16,7 @@
 import type { AuditResult, AuditPage, SpeedState } from "@/lib/seo/types";
 import { computeFindings, isOnSite, summarise, type Finding, type LinkSource, type Severity } from "@/lib/seo/findings";
 import { urlKey } from "@/lib/seo/urls";
-import { formatCls, formatMs, rate, siteSpeed, type Rating } from "@/lib/seo/speed";
+import { fieldVerdict, formatCls, formatMs, rate, siteSpeed, type FieldVerdict, type Rating } from "@/lib/seo/speed";
 import { STAGES, stageMetrics, stageStatus, type StageId, type StageMetric, type StageStatus } from "@/app/admin/(protected)/seo/stages";
 import { guidanceFor, guideLink, plainText } from "@/lib/seo/guidance";
 import type { ReportBrand } from "./brand";
@@ -74,8 +74,8 @@ export interface ReportSpeed {
   lcpRating: Rating | null;
   cls: string;
   tbt: string;
-  /** Real-visitor (Chrome UX Report) data for phones, if Google has it. */
-  field: { found: boolean; lcp: string; inp: string; cls: string; ratings: Record<"lcp" | "inp" | "cls", Rating | null> } | null;
+  /** Real-visitor (Chrome UX Report) verdict — the same one the stage card shows. */
+  field: FieldVerdict;
 }
 
 export interface ReportModel {
@@ -161,7 +161,6 @@ export function partialReasons(audit: AuditResult, phase: AuditPhaseLike): strin
 function speedModel(sp: SpeedState | undefined): ReportSpeed | null {
   if (!sp || sp.status === "skipped") return null;
   const site = siteSpeed(sp.results);
-  const phone = sp.field?.phone ?? null;
   return {
     status: sp.status,
     sampled: sp.sample.length,
@@ -173,15 +172,7 @@ function speedModel(sp: SpeedState | undefined): ReportSpeed | null {
     lcpRating: rate("lcp", site.lcp),
     cls: formatCls(site.cls),
     tbt: formatMs(site.tbt),
-    field: sp.field
-      ? {
-          found: !!sp.field.found && !!phone,
-          lcp: formatMs(phone?.lcp),
-          inp: formatMs(phone?.inp),
-          cls: formatCls(phone?.cls),
-          ratings: { lcp: rate("lcp", phone?.lcp), inp: rate("inp", phone?.inp), cls: rate("cls", phone?.cls) },
-        }
-      : null,
+    field: fieldVerdict(sp.field),
   };
 }
 
@@ -317,13 +308,7 @@ export function buildWorkbook(
       ["Median LCP (mobile)", model.speed.lcp],
       ["Pages speed-tested", `${model.speed.tested} of ${model.speed.sampled} sampled (from ${model.speed.indexable} indexable pages)`]
     );
-    if (model.speed.field) {
-      about.push(
-        model.speed.field.found
-          ? ["Real visitors on phones (28-day p75)", `LCP ${model.speed.field.lcp} · INP ${model.speed.field.inp} · CLS ${model.speed.field.cls}`]
-          : ["Real visitors on phones", "Not enough real-visitor data in Google's Chrome UX Report"]
-      );
-    }
+    about.push(["Real visitors (Chrome UX Report)", `${model.speed.field.label} — ${model.speed.field.detail}`]);
   }
   for (const c of model.coverage) about.push([c.title, c.line]);
   about.push(["How to read this workbook", "Findings: one row per issue per affected URL (and per linking page for link issues). Pages: every page crawled. Links: every link, file and image checked. Speed: the sampled pages."]);

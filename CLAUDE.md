@@ -1250,6 +1250,19 @@ Code in `src/lib/seo/report/`:
 - Guide links in both files point at `https://www.mediasurface.app/
   seo-guide#<id>` (www — the apex redirects).
 
+**Real-visitor verdict — one rule everywhere (fixed 2026-10-12).** Ian
+spotted a contradiction in the first contentbloom.com PDF: the summary
+said "not enough real-visitor data" (it looked at phones only) while the
+Page speed stage said "Good" (it fell back to desktop and rated the one
+measure there, CLS). contentbloom.com's CrUX data is desktop CLS only.
+`fieldVerdict()` in `src/lib/seo/speed.ts` is now the single reading,
+used by the stage card, the on-screen speed panel, the PDF and the
+workbook: prefer phones, fall back to desktop and say so; report any poor
+/ needs-improvement measure even when others are missing; only say
+"Good" when LCP, INP and CLS are all present and good, otherwise
+"Limited data" with a sentence naming what is and isn't there. Findings
+(`field-poor` / `field-needs-work`) still read phones only.
+
 **Pushing from this environment:** the session's git proxy refuses Git
 Data API writes, so `scripts/github_batch.py` can't push here; the
 2026-10-12 commits were made with plain `git commit` + `git push` from a
