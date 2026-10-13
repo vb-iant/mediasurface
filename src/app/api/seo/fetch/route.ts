@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { fetchPage, mapWithLimit } from "@/lib/seo/page";
 import { jsonError, requireSession } from "@/lib/seo/route-auth";
 import { isSameSite } from "@/lib/seo/urls";
+import { parseTarget, type TargetPhrase } from "@/lib/seo/content/text";
+import { MAX_TARGET_PHRASES } from "@/lib/seo/content/model";
 
 // Up to MAX_BATCH pages, CONCURRENCY at a time, each with a 15s deadline.
 export const maxDuration = 60;
@@ -13,7 +15,7 @@ export async function POST(request: NextRequest) {
   const unauthorized = await requireSession(request);
   if (unauthorized) return unauthorized;
 
-  let body: { origin?: unknown; urls?: unknown };
+  let body: { origin?: unknown; urls?: unknown; content?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -39,6 +41,16 @@ export async function POST(request: NextRequest) {
     return jsonError("All urls must be on the site being audited.", 400);
   }
 
-  const pages = await mapWithLimit(urls, CONCURRENCY, (u) => fetchPage(u, origin));
+  // Content scan (phase 6): { content: { phrases: string[] } } switches on
+  // phrase extraction and counts the target phrases against each page's text.
+  let contentPhrases: TargetPhrase[] | null = null;
+  if (body.content != null) {
+    const raw = (body.content as { phrases?: unknown }).phrases;
+    const list = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === "string") : [];
+    if (list.length > MAX_TARGET_PHRASES) return jsonError(`At most ${MAX_TARGET_PHRASES} phrases.`, 400);
+    contentPhrases = list.map((p) => parseTarget(p.slice(0, 100))).filter((p): p is TargetPhrase => p !== null);
+  }
+
+  const pages = await mapWithLimit(urls, CONCURRENCY, (u) => fetchPage(u, origin, contentPhrases));
   return Response.json({ pages }, { headers: { "cache-control": "no-store" } });
 }

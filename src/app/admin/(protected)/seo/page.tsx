@@ -13,9 +13,10 @@ export default function SeoPage() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Any website · up to 5,000 pages</p>
       </div>
       <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
-        Finds every page on a site from its sitemap and internal links, then checks links, on-page SEO, site
-        structure, structured data, page weight and AI crawler access. Results stay in this browser tab until you
-        close it — they aren&apos;t saved anywhere else.
+        The technical audit finds every page on a site from its sitemap and internal links, then checks links,
+        on-page SEO, site structure, structured data, page weight and AI crawler access. The content scan maps what the
+        site is about and checks the client&apos;s target phrases. Results stay in this browser tab until you close
+        it — they aren&apos;t saved anywhere else.
       </p>
       <SeoHome />
     </div>

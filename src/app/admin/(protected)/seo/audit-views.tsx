@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 import { useDeferredValue, useEffect, useMemo, useRef } from "react";
 import { computeFindings, summarise, type Finding } from "@/lib/seo/findings";
 import type { AuditResult } from "@/lib/seo/types";
-import { activeAudit, isActive, startAudit, stopAudit, useAuditRecord, type AuditPhase, type AuditRecord } from "./audit-store";
+import { activeAudit, isActive, isContentScan, startAudit, stopAudit, useAuditRecord, type AuditPhase, type AuditRecord } from "./audit-store";
 import {
   AiPanel,
   AuditBanners,
@@ -274,10 +274,22 @@ function RecordErrors({ record }: { record: AuditRecord }) {
 
 // ------------------------------------------------------------ overview
 
+/** A content scan opened at an audit URL goes to its own screen. */
+function useContentRedirect(record: AuditRecord | undefined) {
+  const router = useRouter();
+  const content = !!record && isContentScan(record);
+  useEffect(() => {
+    if (content && record) router.replace(`/admin/seo/content/${record.id}`);
+  }, [content, record, router]);
+  return content;
+}
+
 export function AuditOverview({ id }: { id: string }) {
   const { hydrated, record } = useAuditRecord(id);
-  const { audit, findings } = useFindings(record?.audit ?? null);
+  const content = useContentRedirect(record);
+  const { audit, findings } = useFindings(content ? null : (record?.audit ?? null));
   if (!record) return <MissingAudit hydrated={hydrated} />;
+  if (content) return null;
   const s = audit ? summarise(audit, findings) : null;
 
   return (
@@ -365,9 +377,11 @@ function StageCard({
 
 export function StageDetail({ id, stageId }: { id: string; stageId: string }) {
   const { hydrated, record } = useAuditRecord(id);
-  const { audit, findings } = useFindings(record?.audit ?? null);
+  const content = useContentRedirect(record);
+  const { audit, findings } = useFindings(content ? null : (record?.audit ?? null));
   const stage = stageById(stageId);
   if (!record) return <MissingAudit hydrated={hydrated} />;
+  if (content) return null;
   if (!stage) return <MissingAudit hydrated />;
 
   const owned = findings.filter(stage.owns);

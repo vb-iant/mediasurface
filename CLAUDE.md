@@ -1157,7 +1157,7 @@ Length/duplicate title and description checks stay warnings (Ian's
 phase 2 decision). The Velocity B baseline is unaffected (none of the
 four occur there).
 
-### Backlog: phase 6 keywords (decided 2026-10-12, not built)
+### Backlog: phase 6 keywords (decided 2026-10-12; built 2026-10-13 as the content scan, below)
 
 Ian picked three crawl-only keyword features for the backlog (Mediasurface
 SEO board): **Site topic map** (`tm-1791804554307`), **What each page
@@ -1168,6 +1168,94 @@ appears (`tm-1791804561166`). Deliberately **no keyword-density score**
 server-side during the crawl so `AuditResult` stays small. Search volume,
 difficulty and rankings need outside data (Google Search Console is the
 free option for sites with access) — out of scope for these.
+
+### Phase 6: content scan (decided + built 2026-10-13)
+
+**Decision (Ian, 2026-10-13): the three phase 6 keyword features are a
+separate "content scan", not a stage of the technical audit.** A second
+option on `/admin/seo` ("Technical audit" | "Content scan"), a fresh crawl,
+its own screens at `/admin/seo/content/[id]`. CTRL `tm-1791922447820`
+(supersedes the three Later tasks' scope). Trade-offs agreed:
+- \+ target phrases are always entered *before* the scan, so every phrase is
+  counted against the full main text server-side — removes the "phrases
+  added after the crawl can't check body text" gap. To try new phrases,
+  "Change phrases" → re-run (quick).
+- \+ quicker (no link checks, no speed tests); `AuditResult` contract,
+  findings, PDF, workbook and the velocity-b.com baseline untouched.
+- \+ clearer for clients (content team vs whoever runs the site); natural
+  home for near-duplicate content / Search Console later.
+- − the site is crawled twice if both are run; two snapshots/downloads; no
+  link-check/speed cross-checks (status, noindex, canonical, depth, inlinks
+  are still recorded by the crawl).
+
+**How it's built:** same crawler, fetcher and session store.
+`AuditOptions.kind = "content"` + `phrases` (≤20, `MAX_TARGET_PHRASES`);
+the store sends `content: { phrases }` to `/api/seo/fetch` and runs the
+crawl with no `checkBatch` and no speed. Same page caps as the audit.
+- `src/lib/seo/content/text.ts` — shared, pure: tokenising (lower-case,
+  accents stripped, apostrophes dropped, hyphens split), light plural
+  folding, English stop words (function words + contractions + a few
+  generic verbs; **no "web boilerplate" words** — "content" is Content
+  Bloom's topic), 1–3 word n-grams, target matching (all phrase words within
+  a window one longer than the phrase, any order, stop words ignored).
+- `src/lib/seo/content/extract-content.ts` — server, inside the page fetch:
+  H2/H3s, opening ~60 words, top 25 phrases + top 15 multi-word, main-text
+  word count, and per-target-phrase body counts. Main text = same exclusions
+  as word count. `FetchedPage.content` (optional, content scans only),
+  ~1.4–1.8 KB/page.
+- `src/lib/seo/content/model.ts` — browser, pure, never stored:
+  - *Which pages:* 200, HTML, no redirect, on-site, not noindex, not
+    `?query`, `/page/N` or `/N/` (split posts), canonical not elsewhere.
+  - *Brand/boilerplate:* title suffixes used 3+ times ("— Velocity-B",
+    "— Velocity-B Blog", "- Content Bloom", "- Home") are stripped and the
+    whole phrase dropped; a brand's single words only go if pages don't use
+    them in titles/H1s outside the brand ("bloom" goes, "content" stays);
+    phrases in ≥30% of titles, or ≥80% of bodies *and never in a title/H1*.
+  - *Subheadings that aren't the page's own* are ignored: headings on ≥20%
+    of pages ("Stay up to date", "Related posts") and headings equal to
+    another page's title/H1 (related-post cards, author boxes) — found on
+    velocity-b.com.
+  - *Focus phrase:* weights title 3, H1 3, URL 2, description 1.5,
+    subheadings 1, opening 1, + body 1.5 × tf/max; ×1.35 two words, ×1.5
+    three; damped (not removed) by site-wide frequency (0.4 + 0.6·idf).
+    Body-only phrases need 3+ uses. *Clarity:* clear = in title + (H1 or
+    URL); mixed = title/H1 (or URL vs both) share no meaningful word; weak =
+    not in the title.
+  - *Topic map:* per section (first path segment; single-page sections fold
+    into "Top-level pages") + whole site; a phrase counts for a page only
+    where the page *names* it (any field but body). People's names from
+    `/author|authors|team|people|staff/` pages left out. A word is dropped
+    when a longer chosen phrase covers ≥60% of its pages.
+  - *Target check:* targets = in title, H1 or URL and score ≥3; otherwise
+    a mention. Link text = internal anchors pointing at the page.
+  - *Findings* (own `ContentFinding` type, not the audit's `Finding`; copy
+    inline in model.ts, **drafted by Claude, awaiting Ian's approval** — not
+    on /seo-guide). Severities per Claude's advice, Ian to confirm:
+    `content-untargeted` warning; `content-competing` notice (clear focus
+    only, any word order); `content-mixed` notice. No errors.
+- Model runs in a Web Worker (`content/content-worker.ts`,
+  `use-content-model.ts`), only once the scan has stopped: ~200 ms for
+  contentbloom.com's 330 analysed pages, ~1.5 s at 1,680 (synthetic), so a
+  5,000-page scan would freeze the page if built in render. Recent-list
+  counts are filled in by the screen (`setContentCounts`).
+- Download v1 (Ian: "start simply with a topic map"):
+  `<host>-topic-map-<date>.xlsx` — About, Topics, Pages (focus phrase per
+  page), via `buildXlsx` (same formula-injection guard).
+
+**Known answers (2026-10-13):**
+- velocity-b.com: 72 crawled, 55 analysed; whole-site top phrases sales,
+  growth, uk, companies, market, revenue; 82% clear focus; phrases "UK
+  expansion" → /blog/why-uk-expansion-fails-early + /uk-expansion, "revenue
+  operations" → /velocity-sprint, "sales forecasting" untargeted and never
+  mentioned, "fractional CMO" untargeted (most on
+  /blog/fractional-is-just-part-time-right). Competing: /uk-expansion vs
+  /blog/dont-hire-your-way-into-the-uk ("uk"). Mixed signals: 6 top-level
+  pages with punchy H1s (/growth, /how-we-work, /our-work, /contact,
+  /resources, /velocity-sprint).
+- contentbloom.com: 817 crawled, 330 analysed, ~105 s; topics content,
+  digital, tridion, sitecore, adobe, cms, content management; 96% clear;
+  "HubSpot implementation" untargeted — HubSpot appears only in page code
+  (plugin comments, form markup), confirmed with curl.
 
 ### Report outputs (decided 2026-10-12, Ian)
 

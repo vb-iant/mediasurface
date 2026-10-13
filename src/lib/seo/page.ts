@@ -5,7 +5,8 @@
 import "server-only";
 import { safeFetch } from "./fetch-page";
 import { extractHtml } from "./extract";
-import type { FetchedPage, OnPageData } from "./types";
+import type { FetchedPage, OnPageData, PageContent } from "./types";
+import type { TargetPhrase } from "./content/text";
 
 function isHtmlType(contentType: string | null): boolean {
   if (!contentType) return false;
@@ -16,7 +17,11 @@ function isHtmlType(contentType: string | null): boolean {
 /** Statuses worth one quick retry: usually a busy server, not a dead page. */
 const TRANSIENT = new Set([500, 502, 503, 504]);
 
-export async function fetchPage(url: string, origin: string): Promise<FetchedPage> {
+/**
+ * `contentPhrases` switches on the content scan's extraction (phase 6):
+ * null for the technical audit, an array (possibly empty) for a content scan.
+ */
+export async function fetchPage(url: string, origin: string, contentPhrases: TargetPhrase[] | null = null): Promise<FetchedPage> {
   let raw = await safeFetch(url, { wantBody: isHtmlType });
   // Found on contentbloom.com, 2026-10-11: six pages returned 500 mid-crawl
   // and loaded fine minutes later. One retry here; the crawler also
@@ -34,13 +39,15 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
   let assetLinks: string[] = [];
   let linkText: Record<string, string> = {};
   let onPage: OnPageData | null = null;
+  let content: PageContent | null = null;
 
   if (isHtml && raw.body.length > 0) {
     const extracted = extractHtml(
       raw.body.toString("utf8"),
       raw.finalUrl,
       origin,
-      raw.headers["x-robots-tag"] ?? null
+      raw.headers["x-robots-tag"] ?? null,
+      contentPhrases
     );
     title = extracted.title;
     internalLinks = extracted.internalLinks;
@@ -49,6 +56,7 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     assetLinks = extracted.assetLinks;
     linkText = extracted.linkText;
     onPage = extracted.onPage;
+    content = extracted.content;
   }
 
   return {
@@ -70,6 +78,7 @@ export async function fetchPage(url: string, origin: string): Promise<FetchedPag
     linkText,
     contentEncoding: raw.headers["content-encoding"] ?? null,
     onPage,
+    ...(contentPhrases ? { content } : {}),
   };
 }
 

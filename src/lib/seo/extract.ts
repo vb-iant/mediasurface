@@ -10,7 +10,9 @@
 import "server-only";
 import * as cheerio from "cheerio";
 import { isSameSite, looksLikePage } from "./urls";
-import type { OnPageData, StructuredDataInfo, StructuredDataItem } from "./types";
+import type { OnPageData, PageContent, StructuredDataInfo, StructuredDataItem } from "./types";
+import { extractContent } from "./content/extract-content";
+import type { TargetPhrase } from "./content/text";
 
 const MAX_LINKS_PER_PAGE = 2000;
 const MAX_LINK_TEXT = 80;
@@ -23,6 +25,8 @@ export interface ExtractedHtml {
   assetLinks: string[];
   linkText: Record<string, string>;
   onPage: OnPageData;
+  /** Content scan only (phase 6). */
+  content: PageContent | null;
 }
 
 function shortText(text: string): string {
@@ -49,7 +53,9 @@ export function extractHtml(
   html: string,
   pageUrl: string,
   origin: string,
-  xRobotsTag: string | null = null
+  xRobotsTag: string | null = null,
+  /** Content scan (phase 6): extract phrase data, counting these target phrases. */
+  contentPhrases: TargetPhrase[] | null = null
 ): ExtractedHtml {
   const $ = cheerio.load(html);
 
@@ -167,6 +173,8 @@ export function extractHtml(
     assetLinks: [...assets],
     linkText,
     onPage,
+    // After everything else: extractContent works on its own clone of <body>.
+    content: contentPhrases ? extractContent($, contentPhrases) : null,
   };
 }
 

@@ -40,6 +40,14 @@ import type {
 export type AuditPhase = "discovering" | "running" | "done" | "stopped" | "error";
 
 export interface AuditOptions {
+  /**
+   * Phase 6 (Ian, 2026-10-13): "content" is the separate content scan —
+   * same crawl, no link checks or speed tests, phrase data per page.
+   * Missing on older records = "audit".
+   */
+  kind?: "audit" | "content";
+  /** Content scan: the client's target phrases, entered before the scan. */
+  phrases?: string[];
   pageLimit: number;
   checkExternal: boolean;
   /** Phase 5b: speed-test a sample of pages after the crawl. Missing on older records = true. */
@@ -47,6 +55,8 @@ export interface AuditOptions {
 }
 
 export interface AuditSummary {
+  /** False on a content scan until its screen has counted the findings. */
+  counted?: boolean;
   pages: number;
   brokenLinks: number;
   errors: number;
@@ -110,8 +120,18 @@ export function isActive(r: AuditRecord): boolean {
   return r.phase === "discovering" || r.phase === "running";
 }
 
-function summaryOf(audit: AuditResult | null): AuditSummary | null {
+export function isContentScan(r: { options: AuditOptions }): boolean {
+  return r.options.kind === "content";
+}
+
+function summaryOf(audit: AuditResult | null, options?: AuditOptions): AuditSummary | null {
   if (!audit) return null;
+  if (options?.kind === "content") {
+    // Counted by the content screen once its worker has built the model
+    // (setContentCounts) — a 5,000-page model takes seconds, so it isn't
+    // built on the main thread here.
+    return { pages: audit.pages.length, brokenLinks: 0, errors: 0, warnings: 0, notices: 0, counted: false };
+  }
   const s = summarise(audit, computeFindings(audit));
   return { pages: s.pagesCrawled, brokenLinks: s.brokenLinks, errors: s.errors, warnings: s.warnings, notices: s.notices };
 }
@@ -254,7 +274,7 @@ async function hydrate() {
         audit,
         queued: 0,
         error: speed?.status === "cancelled" ? "The page was reloaded during the page speed tests, so they stopped early. Run them again from the Page speed stage." : r.error,
-        summary: summaryOf(audit),
+        summary: summaryOf(audit, r.options),
       };
       void idbPut("audits", fixed);
       return fixed;
@@ -267,7 +287,7 @@ async function hydrate() {
       audit,
       queued: 0,
       error: "The page was reloaded while this audit was running, so it stopped. Results cover what was crawled before then.",
-      summary: summaryOf(audit),
+      summary: summaryOf(audit, r.options),
     };
     void idbPut("audits", fixed);
     return fixed;
@@ -396,8 +416,9 @@ async function run(id: string, url: string, options: AuditOptions) {
       : null;
   patch(id, { phase: "running", pacingNote });
 
+  const content = options.kind === "content" ? { phrases: options.phrases ?? [] } : undefined;
   const fetchBatch = async (origin: string, urls: string[]) => {
-    const data = await postJson<{ pages: FetchedPage[] }>("/api/seo/fetch", { origin, urls }, controller.signal);
+    const data = await postJson<{ pages: FetchedPage[] }>("/api/seo/fetch", { origin, urls, content }, controller.signal);
     return data.pages;
   };
   const checkBatch = async (items: LinkCheckItem[], opts?: { perHost?: number }) => {
@@ -415,7 +436,8 @@ async function run(id: string, url: string, options: AuditOptions) {
       requestedUrl: url,
       discovery,
       fetchBatch,
-      checkBatch,
+      // The content scan doesn't check links (that's the technical audit's job).
+      checkBatch: content ? undefined : checkBatch,
       checkExternal: options.checkExternal,
       pageLimit: options.pageLimit,
       signal: controller.signal,
@@ -425,12 +447,16 @@ async function run(id: string, url: string, options: AuditOptions) {
       },
     });
   } catch (err) {
-    finish({ phase: "error", error: err instanceof Error ? err.message : String(err), summary: summaryOf(get(id)?.audit ?? null) });
+    finish({ phase: "error", error: err instanceof Error ? err.message : String(err), summary: summaryOf(get(id)?.audit ?? null, options) });
     return;
   }
   const phase: AuditPhase = result.status === "cancelled" ? "stopped" : result.status === "error" ? "error" : "done";
   if (phase !== "done") {
-    finish({ phase, audit: result, summary: summaryOf(result) });
+    finish({ phase, audit: result, summary: summaryOf(result, options) });
+    return;
+  }
+  if (options.kind === "content") {
+    finish({ phase, audit: result, summary: summaryOf(result, options) });
     return;
   }
   if (options.checkSpeed === false) {
@@ -525,7 +551,7 @@ export function startSpeed(id: string) {
   patch(id, { phase: "running", error: null });
   void runSpeed(id, controller.signal).then(() => {
     controllers.delete(id);
-    patch(id, { phase: "done", summary: summaryOf(get(id)?.audit ?? null) });
+    patch(id, { phase: "done", summary: summaryOf(get(id)?.audit ?? null, r.options) });
     persistNow(id);
   });
 }
@@ -550,6 +576,28 @@ export function runDiagnosis(id: string, url: string) {
       persistNow(id);
     })
     .catch((err) => set({ status: "error", error: err instanceof Error ? err.message : String(err) }));
+}
+
+// "Change phrases" on a content scan: carries the URL, cap and phrases to the
+// start form across the client-side navigation. Read (not consumed, so
+// StrictMode's double render is harmless) for a few seconds after it's set.
+let prefill: { url: string; pageLimit: number; phrases: string[]; at: number } | null = null;
+
+export function prefillContentScan(r: AuditRecord) {
+  prefill = { url: r.requestedUrl, pageLimit: r.options.pageLimit, phrases: r.options.phrases ?? [], at: Date.now() };
+}
+
+export function contentPrefill(): { url: string; pageLimit: number; phrases: string[] } | null {
+  return prefill && Date.now() - prefill.at < 5_000 ? prefill : null;
+}
+
+/** Content scan: findings counts for the recent-audits list, from the screen's model. */
+export function setContentCounts(id: string, counts: { warnings: number; notices: number }) {
+  const r = get(id);
+  if (!r?.summary || isActive(r)) return;
+  if (r.summary.counted && r.summary.warnings === counts.warnings && r.summary.notices === counts.notices) return;
+  patch(id, { summary: { ...r.summary, ...counts, counted: true } });
+  persistNow(id);
 }
 
 export function stopAudit(id: string) {

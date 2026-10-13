@@ -52,6 +52,29 @@ export interface FetchedPage {
   contentEncoding: string | null;
   /** On-page SEO data (phase 2). Null for non-HTML or failed responses. */
   onPage: OnPageData | null;
+  /**
+   * Content scan only (phase 6): phrase data from the page's main text.
+   * Absent on technical audits and on non-HTML / failed responses.
+   */
+  content?: PageContent | null;
+}
+
+/**
+ * What the content scan keeps per page (phase 6). Extracted server-side from
+ * the main text (nav/header/footer/aside/forms excluded, as for word count)
+ * so the scan stays small: ~1–2 KB a page rather than the full text.
+ */
+export interface PageContent {
+  /** H2 and H3 text in the main content, in order (capped). */
+  headings: string[];
+  /** The opening ~60 words of the main content's paragraphs. */
+  intro: string;
+  /** Most frequent 1–3 word phrases in the main text: [as written, count]. */
+  terms: [string, number][];
+  /** Words of main text the phrases were counted over. */
+  words: number;
+  /** Target phrase (TargetPhrase.key) → times it appears in the full main text. */
+  phraseHits: Record<string, number>;
 }
 
 /** Everything the phase 2 on-page checks read. Extracted server-side. */
