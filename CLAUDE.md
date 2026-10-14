@@ -1174,6 +1174,19 @@ share links skipped, run ~2.5 min; broken external 54 (was 55), other
 findings unchanged. velocity-b.com has no share buttons — baseline
 unchanged (35 targets, 1 broken link, 7 unverified).
 
+### Run step tracker (2026-10-14, Ian)
+
+The progress panel only showed the current step's progress, with no sign
+the audit runs several steps. It now leads with a step tracker
+(`runSteps()` / `StepTrack` in `audit-views.tsx`): **Read the site →
+Crawl pages → Check links & files → Test page speed** (the last only when
+page speed is part of the run), done steps ticked with a short result
+("72 pages", "35 of 35"), the current step highlighted, and the label
+reads "Step 2 of 4 · Crawling pages…". Maps from `record.phase` +
+`AuditResult.stage` (rechecking counts as part of the crawl). The
+content scan keeps its own simpler progress line. Verified on
+velocity-b.com in all four steps, desktop light and 390px dark.
+
 ### Backlog: phase 6 keywords (decided 2026-10-12; built 2026-10-13 as the content scan, below)
 
 Ian picked three crawl-only keyword features for the backlog (Mediasurface

@@ -194,6 +194,87 @@ function AuditHeader({ record, crumb }: { record: AuditRecord; crumb?: StageDef 
   );
 }
 
+interface RunStep {
+  label: string;
+  /** Short status under the label once it's started. */
+  note?: string;
+}
+
+/**
+ * The run's steps, in order (Ian, 2026-10-14: show that the audit goes
+ * through several steps, not just the current one's progress). Page speed
+ * only appears when it's part of this run.
+ */
+function runSteps(record: AuditRecord): { steps: RunStep[]; current: number } {
+  const audit = record.audit;
+  const stage = audit?.stage ?? "crawling";
+  const fetched = audit?.pages.length ?? 0;
+  const lc = audit?.linkCheck;
+  const sp = audit?.speed;
+  const withSpeed = record.options.checkSpeed !== false || sp?.status === "running";
+  const steps: RunStep[] = [
+    { label: "Read the site", note: audit ? `${audit.discovery.sitemap.urls.length.toLocaleString("en-GB")} sitemap URLs` : undefined },
+    { label: "Crawl pages", note: fetched ? `${fetched.toLocaleString("en-GB")} pages` : undefined },
+    {
+      label: "Check links & files",
+      note: lc && lc.total ? `${lc.results.length.toLocaleString("en-GB")} of ${lc.total.toLocaleString("en-GB")}` : undefined,
+    },
+  ];
+  if (withSpeed) steps.push({ label: "Test page speed", note: sp?.sample.length ? `${sp.results.length} of ${sp.sample.length}` : undefined });
+  const current =
+    record.phase === "discovering" || !audit
+      ? 0
+      : stage === "crawling" || stage === "rechecking"
+        ? 1
+        : stage === "checking-links"
+          ? 2
+          : stage === "testing-speed"
+            ? 3
+            : steps.length;
+  return { steps, current };
+}
+
+function StepTrack({ steps, current }: { steps: RunStep[]; current: number }) {
+  return (
+    <ol className="mb-4 flex items-start" aria-label="Audit steps">
+      {steps.map((step, i) => {
+        const done = i < current;
+        const active = i === current;
+        return (
+          <li key={step.label} className="relative flex min-w-0 flex-1 flex-col items-center text-center" aria-current={active ? "step" : undefined}>
+            {i > 0 && (
+              <span
+                aria-hidden
+                className={`absolute right-1/2 top-3.5 h-0.5 w-full -translate-y-1/2 ${done || active ? "bg-zinc-900 dark:bg-zinc-50" : "bg-zinc-200 dark:bg-zinc-800"}`}
+              />
+            )}
+            <span
+              className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-semibold ${
+                done
+                  ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                  : active
+                    ? "border-zinc-900 bg-white text-zinc-900 dark:border-zinc-50 dark:bg-zinc-950 dark:text-zinc-50"
+                    : "border-zinc-200 bg-white text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-600"
+              }`}
+            >
+              {done ? "✓" : i + 1}
+              {active && <span className="absolute inset-0 animate-ping rounded-full border-2 border-zinc-900/30 dark:border-zinc-50/30" />}
+            </span>
+            <span
+              className={`mt-1.5 px-1 text-xs leading-tight ${
+                active ? "font-medium text-zinc-900 dark:text-zinc-50" : done ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400 dark:text-zinc-600"
+              }`}
+            >
+              {step.label}
+            </span>
+            {(done || active) && step.note && <span className={`px-1 text-[11px] tabular-nums leading-tight ${muted}`}>{step.note}</span>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /** What the audit is doing right now. */
 function ProgressPanel({ record }: { record: AuditRecord }) {
   if (!isActive(record)) return null;
@@ -226,10 +307,17 @@ function ProgressPanel({ record }: { record: AuditRecord }) {
           ? "Checking this site's files and images, and any remaining links…"
           : "Crawling pages and checking links as they're found…";
   const latest = audit?.pages[audit.pages.length - 1];
+  const { steps, current } = runSteps(record);
   return (
     <div className={`mt-6 p-4 ${card}`}>
+      <StepTrack steps={steps} current={current} />
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
-        <span className="font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
+        <span className="font-medium text-zinc-900 dark:text-zinc-50">
+          <span className={`font-normal ${muted}`}>
+            Step {Math.min(current + 1, steps.length)} of {steps.length} ·{" "}
+          </span>
+          {label}
+        </span>
         {!discovering && (
           <span className={`tabular-nums ${muted}`}>
             {speedRun
