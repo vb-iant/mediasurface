@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local stand-in for the client report Blob store (dev only)
+/.client-reports

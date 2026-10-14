@@ -27,6 +27,7 @@ import {
 } from "./report";
 import { SpeedPanel } from "./speed-panel";
 import { ReportDownload } from "./report-download";
+import { PublishPanel } from "./publish-panel";
 import { STAGES, stageById, stageMetrics, stageStatus, type StageDef, type StageMetric, type StageStatus } from "./stages";
 
 // ------------------------------------------------------------ small pieces
@@ -387,6 +388,7 @@ export function AuditOverview({ id }: { id: string }) {
       <RecordErrors record={record} />
       {audit && <AuditBanners audit={audit} />}
       <ReportDownload record={record} />
+      <PublishPanel record={record} />
 
       {s && (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">

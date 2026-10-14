@@ -66,6 +66,9 @@ up, since they're separate Vercel projects reading from their own repos.
   Don't architect for it pre-emptively.
 - iantruscott.com's newsletter/subscribe replacement — separate decision.
 - Per-client auth/isolation — only relevant if this ever hosts non-Ian sites.
+  (2026-10-14: published SEO reports have a per-client link + passcode in
+  the separate viewer app — see "Client report publishing"; still no
+  per-person accounts here.)
 
 ## GitHub access
 
@@ -1296,12 +1299,13 @@ people remember the brand and would assume a connection. Exception: the
 public guide lives on mediasurface.app for now (Ian: clients will be fine
 with the joke); moving it is a Later task.
 
-**The tool stays private.** Publishing audit results online (HTML reports
-via a separate repo/Vercel project, or Vercel Blob) was considered and
-deferred: it would make this a client-facing service, which needs naming,
-crawler identity, per-person auth and per-client isolation decided
-together — CTRL `tm-1791827463368`. The crawler user agent
-(`MediasurfaceSEO/1.0`) rename folds into that (`tm-1791826492356`).
+**The tool stays private; results can now be shared.** Publishing audit
+results online was deferred on 2026-10-12 (it would need naming, crawler
+identity, per-person auth and per-client isolation decided together —
+CTRL `tm-1791827463368`). On 2026-10-14 Ian chose an interim step instead:
+clients get the *results* as a hosted interactive report behind a link +
+passcode — see "Client report publishing" below. The full client tools
+app (and the crawler UA rename, `tm-1791826492356`) is still deferred.
 
 **Three outputs, nothing about a client hosted:**
 1. **PDF summary** (`tm-1791738069391`) — cover, executive summary, one
@@ -1385,6 +1389,69 @@ workbook: prefer phones, fall back to desktop and say so; report any poor
 Data API writes, so `scripts/github_batch.py` can't push here; the
 2026-10-12 commits were made with plain `git commit` + `git push` from a
 full clone (same result: one commit per change set).
+
+### Client report publishing (decided + built 2026-10-14, Ian)
+
+**Why:** after working through the PDF and workbook with a client, the
+problem was navigating them, not running audits. So clients get the
+results, not the tool: an interactive report at **tools.velocity-b.com**,
+a separate app (`vb-iant/velocity-b-tools`, its own Vercel project) that
+only reads. Mediasurface keeps the GitHub token; the viewer never has it.
+
+**Decisions (Ian):**
+- Interim step before a full client tools app (named product, per-person
+  logins, per-client tool visibility, saved searches) — not instead of it.
+- tools.velocity-b.com, not a separate domain.
+- Two repos, two Vercel projects; the only link is a shared **private
+  Vercel Blob store** connected to both.
+- **One link + one passcode per client**, not per report. v1 shows the
+  client's newest report; **next version lists past reports** at the same
+  link (every report is already kept).
+
+**This reverses "nothing stored server-side" for published reports only.**
+Audits still live in the browser tab; publishing stores a frozen snapshot
+in Blob. Still **never in GitHub**.
+
+**Storage layout** (`src/lib/client-reports/`):
+- `clients/<token>.json` — name, PBKDF2-SHA256 passcode hash (210k
+  iterations), revokedAt. The token (128 random bits) is the client's id
+  and the link: `<CLIENT_VIEWER_URL>/c/<token>`.
+- `reports/<token>/<YYYYMMDDTHHMMSSZ>-<host>-<rand>.json.gz` — gzipped
+  `PublishedReport`; newest pathname = what the client sees.
+- `storage.ts` and `records.ts` are copied verbatim into the viewer — keep
+  in step. Without `BLOB_READ_WRITE_TOKEN`, outside production, both apps
+  use a local folder (`CLIENT_REPORTS_DIR`, default `.client-reports`,
+  gitignored) so they can be tested together locally.
+
+**Snapshot** (`src/lib/seo/report/publish.ts`): built in the browser from
+`AuditResult` via `buildReportModel` (so PDF and viewer agree) but with
+**every** affected URL per finding (sources capped at 10 per URL), every
+page with its finding ids, and speed rows. Gzipped before upload — the
+server checks size (< 4.4 MB, Vercel's request limit is 4.5 MB), that it
+unzips (60 MB cap) and `version`. velocity-b.com (72 pages) = 14 KB.
+**It's a cross-repo contract:** change a field → bump
+`PUBLISHED_REPORT_VERSION` and teach the viewer; published reports never
+change. Content scans can't be published (audits only).
+
+**Admin** — "Share with client" panel on the audit overview
+(`publish-panel.tsx`): add client (passcode shown once — only the hash is
+stored), publish, copy link, new passcode (signs out every device: the
+viewer cookie carries a fingerprint of the hash), withdraw/restore access,
+remove a published report. Routes under `/api/client-reports/*`, each
+checking the admin session itself (outside the proxy matcher, like
+`/api/seo/*`).
+
+**Env:** `BLOB_READ_WRITE_TOKEN` (set by connecting the store),
+optional `CLIENT_VIEWER_URL` (default `https://tools.velocity-b.com`).
+
+**Verified locally 2026-10-14** (both apps on `next start`, shared local
+store, headless Chromium): real velocity-b.com audit (72 pages, speed on)
+→ client created → published → viewer link: wrong passcode rejected,
+passcode typed in capitals with spaces accepted, all four tabs render, no
+console errors, no horizontal scroll at 390px; cookie path-scoped to the
+link; withdraw → "link isn't active", restore → passcode gate; passcode
+reset → existing session sent back to the gate; garbage upload 400,
+unauthenticated 401.
 
 ## Build status
 
