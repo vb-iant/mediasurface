@@ -346,6 +346,8 @@ export interface LinkCheckState {
   externalSkipped: boolean;
   /** Unique external links found but not checked because of that. */
   externalNotChecked: number;
+  /** Social share links found (one per page per network) — never checked. Absent on older audits. */
+  shareLinksSkipped?: number;
 }
 
 /** Ceiling on status checks per audit (in the order targets are found). */

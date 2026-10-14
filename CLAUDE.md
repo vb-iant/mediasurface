@@ -1157,6 +1157,23 @@ Length/duplicate title and description checks stay warnings (Ian's
 phase 2 decision). The Velocity B baseline is unaffected (none of the
 four occur there).
 
+### Social share links skipped (2026-10-14, Ian)
+
+Share buttons ("Share on LinkedIn/X/Facebook…") build a unique URL per
+page (`linkedin.com/shareArticle?url=<this page>`), so a blog produced
+hundreds of "external links" pointing at a few share endpoints. They are
+no longer checked or listed: `isShareLink()` in `urls.ts` (LinkedIn
+share-offsite/shareArticle, X/Twitter intent/share, Facebook sharer and
+dialogs, Reddit submit, WhatsApp, Pinterest pin/create, Telegram, Tumblr,
+Bluesky, Threads, Xing, VK, Pocket, Buffer). Plain profile links
+(`linkedin.com/company/…`, `x.com/someone`) are still checked. The count
+is shown in Discovery → Crawl setup ("921 social share links not
+checked"), not as a finding. `LinkCheckState.shareLinksSkipped`.
+Verified: contentbloom.com (817 pages) link targets 2,181 → 1,260, 921
+share links skipped, run ~2.5 min; broken external 54 (was 55), other
+findings unchanged. velocity-b.com has no share buttons — baseline
+unchanged (35 targets, 1 broken link, 7 unverified).
+
 ### Backlog: phase 6 keywords (decided 2026-10-12; built 2026-10-13 as the content scan, below)
 
 Ian picked three crawl-only keyword features for the backlog (Mediasurface

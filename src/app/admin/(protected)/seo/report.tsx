@@ -720,6 +720,12 @@ export function CrawlSetup({ audit }: { audit: AuditResult }) {
                     : `${audit.linkCheck.results.length.toLocaleString("en-GB")} of ${audit.linkCheck.found.toLocaleString("en-GB")}${
                         audit.linkCheck.status === "running" ? " so far" : audit.linkCheck.status === "cancelled" ? " (stopped early)" : ""
                       }`}
+                {(audit.linkCheck?.shareLinksSkipped ?? 0) > 0 && (
+                  <span className={`block text-xs ${muted}`}>
+                    {audit.linkCheck!.shareLinksSkipped!.toLocaleString("en-GB")} social share links not checked (share buttons
+                    make one per page; the networks block automated checks)
+                  </span>
+                )}
               </dd>
             </div>
             {discovery.hosts?.length > 0 && (

@@ -114,3 +114,40 @@ export function normaliseInputUrl(input: string): string | null {
     return null;
   }
 }
+
+/**
+ * Social "share this page" links (Ian, 2026-10-14). A share button builds a
+ * unique URL for every page (…/share-offsite/?url=<this page>), so a blog
+ * with share buttons produces hundreds of "external links" that all point
+ * at a handful of share endpoints — and those endpoints block bots, so they
+ * only ever come back "couldn't verify". They aren't checked; plain profile
+ * links (linkedin.com/company/…) still are.
+ */
+const SHARE_PATTERNS: [RegExp, RegExp][] = [
+  [/(^|\.)linkedin\.com$/, /^\/(sharing\/share-offsite|shareArticle|cws\/share)/i],
+  [/(^|\.)(twitter|x)\.com$/, /^\/(intent\/(tweet|post)|share\/?$|home\/?$)/i],
+  [/(^|\.)facebook\.com$/, /^\/(sharer|share\.php|dialog\/(share|feed))/i],
+  [/(^|\.)reddit\.com$/, /^\/submit/i],
+  [/^wa\.me$/, /^\/?$/],
+  [/(^|\.)whatsapp\.com$/, /^\/send/i],
+  [/(^|\.)pinterest\.[a-z.]+$/, /^\/pin\/create/i],
+  [/^(t|telegram)\.me$/, /^\/share/i],
+  [/(^|\.)tumblr\.com$/, /^\/(share|widgets\/share)/i],
+  [/^bsky\.app$/, /^\/intent\/compose/i],
+  [/(^|\.)threads\.(net|com)$/, /^\/intent\/post/i],
+  [/(^|\.)xing\.com$/, /^\/(spi\/shares|social\/share)/i],
+  [/(^|\.)vk\.com$/, /^\/share\.php/i],
+  [/(^|\.)getpocket\.com$/, /^\/(save|edit)/i],
+  [/(^|\.)buffer\.com$/, /^\/add/i],
+];
+
+export function isShareLink(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase();
+  return SHARE_PATTERNS.some(([h, p]) => h.test(host) && p.test(u.pathname));
+}

@@ -13,7 +13,7 @@
  */
 
 import { isAllowedByRobots } from "./robots";
-import { isSameSite, looksLikePage, urlKey } from "./urls";
+import { isSameSite, isShareLink, looksLikePage, urlKey } from "./urls";
 import type { AuditPage, AuditResult, DiscoveryResult, FetchedPage, LinkCheckResult } from "./types";
 import { MAX_LINK_CHECKS, MAX_PAGE_LIMIT, PAGE_LIMIT } from "./types";
 
@@ -110,6 +110,7 @@ export async function runCrawl(options: CrawlOptions): Promise<AuditResult> {
       results: [],
       externalSkipped: !checkExternal,
       externalNotChecked: 0,
+      shareLinksSkipped: 0,
     },
     stage: "crawling",
   };
@@ -330,6 +331,7 @@ function createLinkChecker(
   const state = audit.linkCheck;
   const seenTargets = new Set<string>();
   const skippedExternal = new Set<string>();
+  const shareLinks = new Set<string>();
   const externals: LinkCheckItem[] = [];
   const assets: LinkCheckItem[] = [];
   let assetsReleased = false;
@@ -397,10 +399,15 @@ function createLinkChecker(
     addFromPage(page: AuditPage) {
       for (const url of page.assetLinks ?? []) queueTarget(url, "asset");
       for (const url of page.externalLinks ?? []) {
+        if (isShareLink(url)) {
+          shareLinks.add(url);
+          continue;
+        }
         if (checkExternal) queueTarget(url, "external");
         else skippedExternal.add(url);
       }
       state.externalNotChecked = skippedExternal.size;
+      state.shareLinksSkipped = shareLinks.size;
       pump();
     },
     /** Crawl finished: release same-site files, then wait until every queue is empty. */
